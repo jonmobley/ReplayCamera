@@ -80,7 +80,12 @@ final class MomentStore: ObservableObject {
         if FileManager.default.fileExists(atPath: dest.path) {
             try FileManager.default.removeItem(at: dest)
         }
-        try FileManager.default.copyItem(at: sourceURL, to: dest)
+        // Prefer move from temp stitch output — avoids a second full-file copy.
+        do {
+            try FileManager.default.moveItem(at: sourceURL, to: dest)
+        } catch {
+            try FileManager.default.copyItem(at: sourceURL, to: dest)
+        }
 
         moments.insert(moment, at: 0)
         trimToCap()
@@ -93,6 +98,12 @@ final class MomentStore: ObservableObject {
         moments.removeAll { $0.id == moment.id }
         try? FileManager.default.removeItem(at: fileURL(for: moment))
         persistIndex()
+    }
+
+    /// Removes a moment by id when present.
+    func remove(id: UUID) {
+        guard let moment = moments.first(where: { $0.id == id }) else { return }
+        remove(moment)
     }
 
     // MARK: - Private

@@ -92,39 +92,32 @@ struct CameraScreen: View {
             }
 
             if let message = camera.statusMessage {
-                Text(message)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .rotationEffect(orientation.angle)
-                    .transition(.opacity)
+                HStack(spacing: 12) {
+                    Text(message)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(.white)
+                    if camera.canUndoLastSave {
+                        Button("Undo") {
+                            camera.undoLastSave()
+                        }
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(.ultraThinMaterial, in: Capsule())
+                .rotationEffect(orientation.angle)
+                .transition(.opacity)
             }
         }
         .animation(.easeInOut(duration: 0.2), value: camera.statusMessage)
+        .animation(.easeInOut(duration: 0.2), value: camera.canUndoLastSave)
         .animation(.easeInOut(duration: 0.2), value: camera.isRecording)
         .animation(.easeInOut(duration: 0.2), value: moments.latest?.id)
         .animation(.easeInOut(duration: 0.2), value: orientation.angle)
         .animation(.easeInOut(duration: 0.2), value: orientation.deviceOrientation)
         .animation(.easeInOut(duration: 0.15), value: camera.zoomFactor)
-        .confirmationDialog(
-            "Save Recording?",
-            isPresented: saveDialogBinding,
-            titleVisibility: .visible
-        ) {
-            ForEach(camera.availableSaveOptions) { option in
-                Button(option.title) {
-                    camera.confirmSave(option)
-                }
-            }
-            Button("Don't Save", role: .destructive) {
-                camera.discardRecording()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("How much do you want to keep? Cancel keeps a temporary Moment.")
-        }
         .sheet(isPresented: $showRoll) {
             CameraRollView(moments: moments)
         }
@@ -171,19 +164,6 @@ struct CameraScreen: View {
                 }
             }
         }
-    }
-
-    // MARK: - Bindings
-
-    private var saveDialogBinding: Binding<Bool> {
-        Binding(
-            get: { camera.isChoosingSave },
-            set: { presented in
-                if !presented, camera.isChoosingSave {
-                    camera.keepRecordingAsMoment()
-                }
-            }
-        )
     }
 
     // MARK: - Chrome
@@ -388,7 +368,7 @@ struct CameraScreen: View {
                 }
             } else {
                 HStack {
-                    cameraRollButton
+                    libraryButton
                     Spacer()
                     flipButton
                 }
@@ -437,7 +417,7 @@ struct CameraScreen: View {
         .accessibilityLabel("Save last 30 seconds clip")
     }
 
-    private var cameraRollButton: some View {
+    private var libraryButton: some View {
         Button {
             showRoll = true
         } label: {
@@ -448,8 +428,8 @@ struct CameraScreen: View {
                 .background(.black.opacity(0.45), in: Circle())
                 .rotationEffect(orientation.angle)
         }
-        .disabled(camera.permissionDenied || camera.isChoosingSave)
-        .accessibilityLabel("Camera Roll")
+        .disabled(camera.permissionDenied)
+        .accessibilityLabel("Library")
     }
 
     private var shutterButton: some View {
@@ -542,13 +522,13 @@ private struct FirstRunTipView: View {
             )
             tipRow(
                 icon: "square.and.arrow.down",
-                title: "Choose how much to keep",
-                detail: "On stop, save 30s, 60s, or the full take to Photos."
+                title: "Stop saves the full take",
+                detail: "The whole recording goes to Photos. Tap Undo if you didn’t mean it."
             )
             tipRow(
                 icon: "clock.arrow.circlepath",
                 title: "Moments are temporary",
-                detail: "Cancel keeps a short-lived redo copy. Don’t Save deletes the take."
+                detail: "A short-lived copy stays so you can re-save the last 30s, 60s, or full take."
             )
 
             Spacer(minLength: 8)

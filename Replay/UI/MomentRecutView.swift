@@ -8,7 +8,7 @@
 import AVKit
 import SwiftUI
 
-/// Lets the user save the frozen moment to the Replay album again.
+/// Lets the user re-save a frozen moment (full or trailing cut) to Photos.
 struct MomentRecutView: View {
     let moment: ReplayMoment
     var onFinished: (() -> Void)?
@@ -20,6 +20,10 @@ struct MomentRecutView: View {
 
     private var fileURL: URL {
         MomentStore.shared.fileURL(for: moment)
+    }
+
+    private var exportOptions: [MomentExportOption] {
+        MomentExportOption.available(forDuration: moment.duration)
     }
 
     var body: some View {
@@ -40,19 +44,22 @@ struct MomentRecutView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
-                Button {
-                    saveAgain()
-                } label: {
+                VStack(spacing: 10) {
+                    ForEach(exportOptions) { option in
+                        Button {
+                            save(option)
+                        } label: {
+                            Text(didSave ? "Saved" : option.title)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(isSaving || didSave)
+                    }
                     if isSaving {
                         ProgressView()
-                            .frame(maxWidth: .infinity)
-                    } else {
-                        Text(didSave ? "Saved" : "Save to Photos")
-                            .frame(maxWidth: .infinity)
+                            .padding(.top, 4)
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(isSaving || didSave)
 
                 if let errorMessage {
                     Text(errorMessage)
@@ -63,7 +70,7 @@ struct MomentRecutView: View {
                 Spacer()
             }
             .padding()
-            .navigationTitle("Last Moment")
+            .navigationTitle("Moment")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -73,14 +80,15 @@ struct MomentRecutView: View {
         }
     }
 
-    private func saveAgain() {
+    private func save(_ option: MomentExportOption) {
         errorMessage = nil
         isSaving = true
+        let seconds = option.secondsToExport(from: moment.duration)
         Task {
             do {
                 let cut = try await MomentExporter.exportTrailing(
                     from: fileURL,
-                    seconds: moment.duration
+                    seconds: seconds
                 )
                 try await PhotoLibrarySaver.saveVideo(at: cut)
                 try? FileManager.default.removeItem(at: cut)

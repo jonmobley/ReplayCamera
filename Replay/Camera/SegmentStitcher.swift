@@ -39,6 +39,12 @@ enum SegmentStitcher {
     ) async throws -> URL {
         guard !segments.isEmpty else { throw StitchError.empty }
 
+        // Single segment + keep-all: hard-link/copy, no re-encode.
+        if segments.count == 1,
+           seconds + 0.05 >= segments[0].duration {
+            return try duplicate(segments[0].url)
+        }
+
         let composition = AVMutableComposition()
         guard
             let videoTrack = composition.addMutableTrack(
@@ -78,41 +84,34 @@ enum SegmentStitcher {
             .appendingPathComponent("Replay-\(UUID().uuidString)")
             .appendingPathExtension("mp4")
 
-        guard let exporter = AVAssetExportSession(
-            asset: composition,
-            presetName: AVAssetExportPresetHighestQuality
-        ) else {
-            throw StitchError.exportFailed("Export session unavailable.")
-        }
-
-        exporter.outputURL = outputURL
-        exporter.outputFileType = .mp4
-        exporter.shouldOptimizeForNetworkUse = true
-        exporter.timeRange = trailingTimeRange(
-            total: cursor,
-            seconds: seconds
-        )
-
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            exporter.exportAsynchronously {
-                continuation.resume()
-            }
-        }
-
-        switch exporter.status {
-        case .completed:
+        let range = trailingTimeRange(total: cursor, seconds: seconds)
+        do {
+            try await ReplayAssetExport.exportMP4(
+                asset: composition,
+                timeRange: range,
+                to: outputURL
+            )
             return outputURL
-        case .failed:
-            let message = exporter.error?.localizedDescription ?? "Export failed."
+        } catch {
+            let message = (error as? LocalizedError)?.errorDescription
+                ?? error.localizedDescription
             throw StitchError.exportFailed(message)
-        case .cancelled:
-            throw StitchError.exportFailed("Export cancelled.")
-        default:
-            throw StitchError.exportFailed("Unexpected export status.")
         }
     }
 
     // MARK: - Private
+
+    private static func duplicate(_ url: URL) throws -> URL {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Replay-\(UUID().uuidString)")
+            .appendingPathExtension("mp4")
+        do {
+            try FileManager.default.linkItem(at: url, to: outputURL)
+        } catch {
+            try FileManager.default.copyItem(at: url, to: outputURL)
+        }
+        return outputURL
+    }
 
     private static func trailingTimeRange(
         total: CMTime,

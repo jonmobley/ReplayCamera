@@ -31,7 +31,9 @@ enum PhotoLibrarySaver {
     }
 
     /// Requests library access, saves `fileURL`, and adds it to the Replay album.
-    static func saveVideo(at fileURL: URL) async throws {
+    /// - Returns: Photos local identifier for the created asset (for Undo).
+    @discardableResult
+    static func saveVideo(at fileURL: URL) async throws -> String {
         let status = await requestReadWriteAccess()
         guard status == .authorized || status == .limited else {
             throw SaveError.denied
@@ -40,6 +42,30 @@ enum PhotoLibrarySaver {
         let album = try await fetchOrCreateAlbum()
         let localID = try await createVideoAsset(at: fileURL)
         try await addAsset(localIdentifier: localID, to: album)
+        return localID
+    }
+
+    /// Deletes library assets by local identifier (used by Undo).
+    static func deleteAssets(localIdentifiers: [String]) async throws {
+        guard !localIdentifiers.isEmpty else { return }
+        let assets = PHAsset.fetchAssets(
+            withLocalIdentifiers: localIdentifiers,
+            options: nil
+        )
+        guard assets.count > 0 else { return }
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.deleteAssets(assets as NSFastEnumeration)
+            } completionHandler: { success, error in
+                if success {
+                    continuation.resume()
+                } else {
+                    let message = error?.localizedDescription ?? "Could not delete from Photos."
+                    continuation.resume(throwing: SaveError.failed(message))
+                }
+            }
+        }
     }
 
     /// Saves still image data into the Replay album.

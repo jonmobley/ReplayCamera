@@ -21,13 +21,13 @@
 		<key>CFBundleVersion</key>
 		<string>3</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Replay continuously buffers recent video so you can save the moment after it happens.</string>
+	<string>Replay records video when you tap the shutter so you can save the moment.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Replay includes microphone audio in the buffered clip you save.</string>
+	<string>Replay includes microphone audio in the clips you save.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Replay saves your clip to the Replay album in Photos.</string>
+	<string>Replay saves your clips to the Replay album in Photos.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Replay shows your Replay album and saves new clips there. With iCloud Photos on, they sync automatically.</string>
+	<string>Replay shows your Replay album and Moments library. With iCloud Photos on, saves sync automatically.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>
