@@ -16,17 +16,15 @@ final class CaptureSessionController: NSObject, ObservableObject {
 
     @MainActor @Published private(set) var bufferedSeconds: TimeInterval = 0
     @MainActor @Published private(set) var isSessionRunning = false
-    @MainActor @Published private(set) var isSaving = false
-    @MainActor @Published private(set) var isUsingFrontCamera = false
     @MainActor @Published private(set) var statusMessage: String?
     @MainActor @Published private(set) var permissionDenied = false
-    @Published private(set) var bufferLength: BufferLength
+    @MainActor @Published private(set) var isUsingFrontCamera = false
 
-    var bufferTarget: TimeInterval { bufferLength.seconds }
+    let bufferTarget = BufferLength.maxBufferSeconds
 
     @MainActor
     var canSave: Bool {
-        bufferedSeconds >= 0.5 && !isSaving && isSessionRunning
+        bufferedSeconds >= 0.5 && isSessionRunning
     }
 
     // MARK: - Capture
@@ -40,19 +38,20 @@ final class CaptureSessionController: NSObject, ObservableObject {
 
     private var videoDeviceInput: AVCaptureDeviceInput?
     private var audioDeviceInput: AVCaptureDeviceInput?
+    private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
+    private var rotationObservations = [NSKeyValueObservation]()
+    private var lastCaptureRotationAngle: CGFloat?
     private var usingFrontCamera = false
 
     // MARK: - Lifecycle
 
     override init() {
-        let length = BufferLength.stored
         let queue = DispatchQueue(label: "com.moxie.Replay.session")
         sessionQueue = queue
         recorder = RollingBufferRecorder(
             queue: queue,
-            bufferDuration: length.seconds
+            bufferDuration: BufferLength.maxBufferSeconds
         )
-        bufferLength = length
         super.init()
         previewLayer.session = session
         previewLayer.videoGravity = .resizeAspectFill
@@ -60,17 +59,6 @@ final class CaptureSessionController: NSObject, ObservableObject {
             Task { @MainActor in
                 self?.bufferedSeconds = seconds
             }
-        }
-    }
-
-    /// Changes the rolling window length without stopping the session.
-    @MainActor
-    func setBufferLength(_ length: BufferLength) {
-        guard length != bufferLength else { return }
-        bufferLength = length
-        BufferLength.stored = length
-        sessionQueue.async { [weak self] in
-            self?.recorder.setBufferDuration(length.seconds)
         }
     }
 
@@ -100,6 +88,7 @@ final class CaptureSessionController: NSObject, ObservableObject {
     func stop() {
         sessionQueue.async { [weak self] in
             guard let self else { return }
+            self.tearDownRotationCoordinatorLocked()
             if self.session.isRunning {
                 self.session.stopRunning()
             }
@@ -111,12 +100,53 @@ final class CaptureSessionController: NSObject, ObservableObject {
         }
     }
 
+    /// Saves the preferred trailing length immediately; export finishes in the background.
+    @MainActor
+    func saveReplay() {
+        guard canSave else { return }
+
+        let trailingSeconds = BufferLength.exportSeconds(buffered: bufferedSeconds)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        statusMessage = "Saved"
+        scheduleStatusClear()
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let segments = await self.snapshotSegments()
+            guard !segments.isEmpty else {
+                self.statusMessage = "Nothing buffered yet."
+                self.scheduleStatusClear()
+                return
+            }
+            do {
+                let stitched = try await SegmentStitcher.stitch(
+                    segments,
+                    trailingSeconds: trailingSeconds
+                )
+                try await PhotoLibrarySaver.saveVideo(at: stitched)
+                try? FileManager.default.removeItem(at: stitched)
+            } catch {
+                self.statusMessage = error.localizedDescription
+                self.scheduleStatusClear()
+            }
+        }
+    }
+
+    private func snapshotSegments() async -> [BufferSegment] {
+        await withCheckedContinuation { continuation in
+            sessionQueue.async { [recorder] in
+                recorder.flushAndSnapshot { segments in
+                    continuation.resume(returning: segments)
+                }
+            }
+        }
+    }
+
     /// Switches between front and back cameras and resets the buffer.
     func flipCamera() {
         sessionQueue.async { [weak self] in
             guard let self else { return }
             self.session.beginConfiguration()
-            defer { self.session.commitConfiguration() }
 
             if let current = self.videoDeviceInput {
                 self.session.removeInput(current)
@@ -132,14 +162,24 @@ final class CaptureSessionController: NSObject, ObservableObject {
                 ),
                 let input = try? AVCaptureDeviceInput(device: device),
                 self.session.canAddInput(input)
-            else { return }
+            else {
+                self.session.commitConfiguration()
+                return
+            }
 
             self.session.addInput(input)
             self.videoDeviceInput = input
             self.usingFrontCamera = nextPosition == .front
-            self.applyVideoRotationLocked()
             self.configureRecorderSettingsLocked()
+            self.session.commitConfiguration()
             self.recorder.reset()
+            self.installRotationCoordinatorLocked()
+
+            if let connection = self.videoOutput.connection(with: .video),
+               connection.isVideoMirroringSupported {
+                connection.automaticallyAdjustsVideoMirroring = false
+                connection.isVideoMirrored = nextPosition == .front
+            }
 
             Task { @MainActor in
                 self.isUsingFrontCamera = nextPosition == .front
@@ -148,35 +188,11 @@ final class CaptureSessionController: NSObject, ObservableObject {
         }
     }
 
-    /// Flushes the open segment, stitches the window, and saves to Photos.
+    /// Opens the system Photos app (Camera Roll).
     @MainActor
-    func saveReplay() {
-        guard canSave, !isSaving else { return }
-        isSaving = true
-        statusMessage = nil
-
-        sessionQueue.async { [weak self] in
-            guard let self else { return }
-            self.recorder.flushAndSnapshot { segments in
-                Task { @MainActor in
-                    await self.exportAndSave(segments)
-                }
-            }
-        }
-    }
-
-    @MainActor
-    private func exportAndSave(_ segments: [BufferSegment]) async {
-        do {
-            let stitched = try await SegmentStitcher.stitch(segments)
-            try await PhotoLibrarySaver.saveVideo(at: stitched)
-            try? FileManager.default.removeItem(at: stitched)
-            statusMessage = "Saved to Photos"
-        } catch {
-            statusMessage = error.localizedDescription
-        }
-        isSaving = false
-        scheduleStatusClear()
+    func openCameraRoll() {
+        guard let url = URL(string: "photos-redirect://") else { return }
+        UIApplication.shared.open(url)
     }
 
     // MARK: - Session setup
@@ -223,9 +239,9 @@ final class CaptureSessionController: NSObject, ObservableObject {
             audioDeviceInput = micInput
         }
 
-        applyVideoRotationLocked()
         configureRecorderSettingsLocked()
         session.commitConfiguration()
+        installRotationCoordinatorLocked()
     }
 
     private func configureRecorderSettingsLocked() {
@@ -246,16 +262,77 @@ final class CaptureSessionController: NSObject, ObservableObject {
         recorder.configure(videoSettings: videoSettings, audioSettings: audioSettings)
     }
 
-    private func applyVideoRotationLocked() {
-        guard let connection = videoOutput.connection(with: .video) else { return }
-        if connection.isVideoRotationAngleSupported(90) {
-            connection.videoRotationAngle = 90
+    // MARK: - Orientation
+
+    private func installRotationCoordinatorLocked() {
+        guard let device = videoDeviceInput?.device else { return }
+        tearDownRotationCoordinatorLocked()
+
+        let coordinator = AVCaptureDevice.RotationCoordinator(
+            device: device,
+            previewLayer: previewLayer
+        )
+        rotationCoordinator = coordinator
+
+        applyCaptureRotation(
+            coordinator.videoRotationAngleForHorizonLevelCapture,
+            breakSegment: false
+        )
+        applyPreviewRotation(
+            coordinator.videoRotationAngleForHorizonLevelPreview
+        )
+
+        let captureObservation = coordinator.observe(
+            \.videoRotationAngleForHorizonLevelCapture,
+            options: [.new]
+        ) { [weak self] coord, _ in
+            let angle = coord.videoRotationAngleForHorizonLevelCapture
+            self?.sessionQueue.async {
+                self?.applyCaptureRotation(angle, breakSegment: true)
+            }
         }
-        let isFront = videoDeviceInput?.device.position == .front
-        if connection.isVideoMirroringSupported {
-            connection.automaticallyAdjustsVideoMirroring = false
-            connection.isVideoMirrored = isFront
+
+        let previewObservation = coordinator.observe(
+            \.videoRotationAngleForHorizonLevelPreview,
+            options: [.new]
+        ) { [weak self] coord, _ in
+            let angle = coord.videoRotationAngleForHorizonLevelPreview
+            DispatchQueue.main.async {
+                self?.applyPreviewRotation(angle)
+            }
         }
+
+        rotationObservations = [captureObservation, previewObservation]
+    }
+
+    private func tearDownRotationCoordinatorLocked() {
+        rotationObservations.forEach { $0.invalidate() }
+        rotationObservations.removeAll()
+        rotationCoordinator = nil
+        lastCaptureRotationAngle = nil
+    }
+
+    private func applyCaptureRotation(_ angle: CGFloat, breakSegment: Bool) {
+        guard let connection = videoOutput.connection(with: .video),
+              connection.isVideoRotationAngleSupported(angle)
+        else { return }
+
+        let angleChanged = lastCaptureRotationAngle != angle
+        connection.videoRotationAngle = angle
+        lastCaptureRotationAngle = angle
+
+        guard angleChanged else { return }
+        configureRecorderSettingsLocked()
+        if breakSegment {
+            recorder.forceRotateSegment()
+        }
+    }
+
+    private func applyPreviewRotation(_ angle: CGFloat) {
+        guard let connection = previewLayer.connection,
+              connection.isVideoRotationAngleSupported(angle)
+        else { return }
+        connection.videoRotationAngle = angle
     }
 
     private static func requestAccess(for mediaType: AVMediaType) async -> Bool {
@@ -268,9 +345,10 @@ final class CaptureSessionController: NSObject, ObservableObject {
 
     @MainActor
     private func scheduleStatusClear() {
+        let message = statusMessage
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 2_500_000_000)
-            if statusMessage == "Saved to Photos" {
+            try? await Task.sleep(nanoseconds: 1_400_000_000)
+            if statusMessage == message {
                 statusMessage = nil
             }
         }

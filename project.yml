@@ -37,6 +37,8 @@ targets:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
-        NSCameraUsageDescription: Replay continuously buffers the last 15 seconds of video so you can save the moment after it happens.
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSCameraUsageDescription: Replay continuously buffers recent video so you can save the moment after it happens.
         NSMicrophoneUsageDescription: Replay includes microphone audio in the buffered clip you save.
-        NSPhotoLibraryAddUsageDescription: Replay saves your 15-second clip to Photos.
+        NSPhotoLibraryAddUsageDescription: Replay saves your clip to Photos.

@@ -28,10 +28,15 @@ enum SegmentStitcher {
         }
     }
 
-    /// Stitches `segments` in order into a temporary MP4.
-    /// - Parameter segments: Finished segments covering the trailing window.
+    /// Stitches `segments` and keeps only the trailing `seconds` when possible.
+    /// - Parameters:
+    ///   - segments: Finished segments covering the rolling window.
+    ///   - seconds: Desired clip length from the end of the buffer.
     /// - Returns: File URL of the exported clip (caller may delete after save).
-    static func stitch(_ segments: [BufferSegment]) async throws -> URL {
+    static func stitch(
+        _ segments: [BufferSegment],
+        trailingSeconds seconds: TimeInterval
+    ) async throws -> URL {
         guard !segments.isEmpty else { throw StitchError.empty }
 
         let composition = AVMutableComposition()
@@ -83,6 +88,10 @@ enum SegmentStitcher {
         exporter.outputURL = outputURL
         exporter.outputFileType = .mp4
         exporter.shouldOptimizeForNetworkUse = true
+        exporter.timeRange = trailingTimeRange(
+            total: cursor,
+            seconds: seconds
+        )
 
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             exporter.exportAsynchronously {
@@ -101,5 +110,22 @@ enum SegmentStitcher {
         default:
             throw StitchError.exportFailed("Unexpected export status.")
         }
+    }
+
+    // MARK: - Private
+
+    private static func trailingTimeRange(
+        total: CMTime,
+        seconds: TimeInterval
+    ) -> CMTimeRange {
+        let keep = CMTime(
+            seconds: max(0.1, seconds),
+            preferredTimescale: 600
+        )
+        if keep >= total {
+            return CMTimeRange(start: .zero, duration: total)
+        }
+        let start = CMTimeSubtract(total, keep)
+        return CMTimeRange(start: start, duration: keep)
     }
 }

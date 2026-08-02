@@ -7,7 +7,7 @@
 
 import Foundation
 
-/// Selectable trailing-window lengths for the rolling buffer.
+/// Save-duration options for Replay clips.
 enum BufferLength: Int, CaseIterable, Identifiable {
     case five = 5
     case ten = 10
@@ -16,22 +16,30 @@ enum BufferLength: Int, CaseIterable, Identifiable {
 
     var id: Int { rawValue }
 
-    /// Seconds to retain before Save.
+    /// Seconds represented by this option.
     var seconds: TimeInterval { TimeInterval(rawValue) }
 
-    /// Short label for the control (e.g. "15s").
-    var label: String { "\(rawValue)s" }
+    /// Settings label, e.g. "30 seconds".
+    var settingsTitle: String { "\(rawValue) seconds" }
 
-    private static let defaultsKey = "replay.bufferLength"
+    /// Maximum trailing window kept while the camera is open.
+    static let maxBufferSeconds: TimeInterval = 30
 
-    /// Persisted preference, defaulting to 15 seconds.
-    static var stored: BufferLength {
+    private static let defaultsKey = "replay.defaultSaveLength"
+
+    /// User’s preferred Save length (defaults to 30 seconds).
+    static var preferredSaveLength: BufferLength {
         get {
             let raw = UserDefaults.standard.integer(forKey: defaultsKey)
-            return BufferLength(rawValue: raw) ?? .fifteen
+            return BufferLength(rawValue: raw) ?? .thirty
         }
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: defaultsKey)
         }
+    }
+
+    /// Effective seconds to export given how much is actually buffered.
+    static func exportSeconds(buffered: TimeInterval) -> TimeInterval {
+        min(preferredSaveLength.seconds, max(0, buffered))
     }
 }

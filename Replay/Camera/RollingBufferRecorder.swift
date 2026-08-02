@@ -131,6 +131,15 @@ final class RollingBufferRecorder: NSObject {
         closeOpenSegment()
     }
 
+    /// Ends the open segment so the next frame can start with new video settings
+    /// (e.g. after an orientation change that swaps frame dimensions).
+    func forceRotateSegment() {
+        guard let pts = lastVideoPTS, currentWriter != nil, !isFinishingSegment else {
+            return
+        }
+        rotateSegment(nextPTS: pts)
+    }
+
     /// Tear down the open writer and delete all segment files.
     func reset() {
         pendingFlush = nil

@@ -21,16 +21,18 @@
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Replay continuously buffers the last 15 seconds of video so you can save the moment after it happens.</string>
+	<string>Replay continuously buffers recent video so you can save the moment after it happens.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Replay includes microphone audio in the buffered clip you save.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Replay saves your 15-second clip to Photos.</string>
+	<string>Replay saves your clip to Photos.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 </dict>
 </plist>

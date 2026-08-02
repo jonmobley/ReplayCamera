@@ -10,10 +10,9 @@
 		042A1B764249B31F8E8CB6B0 /* ReplayApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 707FD31932ADAB93629E0E61 /* ReplayApp.swift */; };
 		068C9A7B9283C4C6763E1B71 /* RollingBufferRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7492279808800F98109CBC0 /* RollingBufferRecorder.swift */; };
 		0FB0ACF569C1CDD8E4DA13AD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B470EA1CF5543CDE8CB48E72 /* Assets.xcassets */; };
-		2F634ECE5820A35889D6FC30 /* BufferLengthPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 947F009EF738B408AF70A39B /* BufferLengthPicker.swift */; };
-		410FC172840189328EC445E4 /* BufferStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B8D0C1A5BA6644EBECCC585 /* BufferStatusView.swift */; };
 		5ABFA6F30992D467B037044C /* CameraPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B105234F87690ED98BD6C40 /* CameraPreviewView.swift */; };
 		6B711C433BF358B1A016CC44 /* SegmentStitcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD6BF220309B556BE4CAF168 /* SegmentStitcher.swift */; };
+		7C8695E895794BFCC6D32782 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEBBD0073928F22DADA07B19 /* SettingsView.swift */; };
 		7FA3AC09F915DCBAA6265185 /* CaptureSessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8BF9CDD3518925AACA2D7B3 /* CaptureSessionController.swift */; };
 		E4217BCDE1B8A4624A57A4CB /* PhotoLibrarySaver.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE64CBD778D7AA5D433614A /* PhotoLibrarySaver.swift */; };
 		E8EDA35FA653CFDAD05B8936 /* BufferLength.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6EB1F1EAFA4CC01CC2168B3 /* BufferLength.swift */; };
@@ -21,14 +20,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		0B8D0C1A5BA6644EBECCC585 /* BufferStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BufferStatusView.swift; sourceTree = "<group>"; };
 		2B4882A1ABEF78B3C6AE773B /* CameraScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraScreen.swift; sourceTree = "<group>"; };
 		4B105234F87690ED98BD6C40 /* CameraPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreviewView.swift; sourceTree = "<group>"; };
 		707FD31932ADAB93629E0E61 /* ReplayApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplayApp.swift; sourceTree = "<group>"; };
 		90E7918C2C86FBFE462F7FF9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		947F009EF738B408AF70A39B /* BufferLengthPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BufferLengthPicker.swift; sourceTree = "<group>"; };
 		A7492279808800F98109CBC0 /* RollingBufferRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RollingBufferRecorder.swift; sourceTree = "<group>"; };
 		B470EA1CF5543CDE8CB48E72 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		BEBBD0073928F22DADA07B19 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		BEE64CBD778D7AA5D433614A /* PhotoLibrarySaver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoLibrarySaver.swift; sourceTree = "<group>"; };
 		D8BF9CDD3518925AACA2D7B3 /* CaptureSessionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureSessionController.swift; sourceTree = "<group>"; };
 		DD6BF220309B556BE4CAF168 /* SegmentStitcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SegmentStitcher.swift; sourceTree = "<group>"; };
@@ -56,10 +54,9 @@
 		6137BD5FB69C445762D87E3F /* UI */ = {
 			isa = PBXGroup;
 			children = (
-				947F009EF738B408AF70A39B /* BufferLengthPicker.swift */,
-				0B8D0C1A5BA6644EBECCC585 /* BufferStatusView.swift */,
 				4B105234F87690ED98BD6C40 /* CameraPreviewView.swift */,
 				2B4882A1ABEF78B3C6AE773B /* CameraScreen.swift */,
+				BEBBD0073928F22DADA07B19 /* SettingsView.swift */,
 			);
 			path = UI;
 			sourceTree = "<group>";
@@ -167,8 +164,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				E8EDA35FA653CFDAD05B8936 /* BufferLength.swift in Sources */,
-				2F634ECE5820A35889D6FC30 /* BufferLengthPicker.swift in Sources */,
-				410FC172840189328EC445E4 /* BufferStatusView.swift in Sources */,
 				5ABFA6F30992D467B037044C /* CameraPreviewView.swift in Sources */,
 				EE3F6455097C7D80C6E1896F /* CameraScreen.swift in Sources */,
 				7FA3AC09F915DCBAA6265185 /* CaptureSessionController.swift in Sources */,
@@ -176,6 +171,7 @@
 				042A1B764249B31F8E8CB6B0 /* ReplayApp.swift in Sources */,
 				068C9A7B9283C4C6763E1B71 /* RollingBufferRecorder.swift in Sources */,
 				6B711C433BF358B1A016CC44 /* SegmentStitcher.swift in Sources */,
+				7C8695E895794BFCC6D32782 /* SettingsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
