@@ -7,10 +7,14 @@
 
 import SwiftUI
 
-/// Full-bleed camera: preview, Camera Roll, Save, flip, and settings.
+/// Full-bleed camera: preview, roll, Save, flip, moment re-cut, settings.
 struct CameraScreen: View {
     @StateObject private var camera = CaptureSessionController()
+    @ObservedObject private var moments = MomentStore.shared
+
     @State private var showSettings = false
+    @State private var showRoll = false
+    @State private var showMomentRecut = false
 
     var body: some View {
         ZStack {
@@ -23,6 +27,9 @@ struct CameraScreen: View {
 
             VStack {
                 HStack {
+                    if moments.latest != nil {
+                        momentButton
+                    }
                     Spacer()
                     settingsButton
                 }
@@ -48,9 +55,18 @@ struct CameraScreen: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: camera.statusMessage)
+        .animation(.easeInOut(duration: 0.2), value: moments.latest?.id)
         .sheet(isPresented: $showSettings) {
             SettingsView()
                 .presentationDetents([.medium])
+        }
+        .sheet(isPresented: $showRoll) {
+            CameraRollView(moments: moments)
+        }
+        .sheet(isPresented: $showMomentRecut) {
+            if let moment = moments.latest {
+                MomentRecutView(moment: moment)
+            }
         }
         .onAppear { camera.start() }
         .onDisappear { camera.stop() }
@@ -71,6 +87,23 @@ struct CameraScreen: View {
         .accessibilityLabel("Settings")
     }
 
+    private var momentButton: some View {
+        Button {
+            showMomentRecut = true
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "clock.arrow.circlepath")
+                Text("Moment")
+                    .font(.system(size: 14, weight: .semibold))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .frame(height: 40)
+            .background(.black.opacity(0.45), in: Capsule())
+        }
+        .accessibilityLabel("Last moment")
+    }
+
     private var controls: some View {
         HStack {
             cameraRollButton
@@ -83,7 +116,7 @@ struct CameraScreen: View {
 
     private var cameraRollButton: some View {
         Button {
-            camera.openCameraRoll()
+            showRoll = true
         } label: {
             Image(systemName: "photo.on.rectangle")
                 .font(.system(size: 20, weight: .semibold))

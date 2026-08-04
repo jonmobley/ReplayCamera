@@ -10,17 +10,25 @@
 		042A1B764249B31F8E8CB6B0 /* ReplayApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 707FD31932ADAB93629E0E61 /* ReplayApp.swift */; };
 		068C9A7B9283C4C6763E1B71 /* RollingBufferRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7492279808800F98109CBC0 /* RollingBufferRecorder.swift */; };
 		0FB0ACF569C1CDD8E4DA13AD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B470EA1CF5543CDE8CB48E72 /* Assets.xcassets */; };
+		14BDE5A84EE1F79B9C40FFB0 /* ReplayAlbumLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = D57E5732466E5A1BFEDA82F6 /* ReplayAlbumLibrary.swift */; };
+		2F28BCDA6C8D2611DFBB974A /* CameraRollView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36B8CB1228722AD953DABBA /* CameraRollView.swift */; };
+		41C9273318962F056C7C31BE /* MomentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AEFE2BF7423CCB6E9635623 /* MomentStore.swift */; };
 		5ABFA6F30992D467B037044C /* CameraPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B105234F87690ED98BD6C40 /* CameraPreviewView.swift */; };
 		6B711C433BF358B1A016CC44 /* SegmentStitcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD6BF220309B556BE4CAF168 /* SegmentStitcher.swift */; };
 		7C8695E895794BFCC6D32782 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEBBD0073928F22DADA07B19 /* SettingsView.swift */; };
 		7FA3AC09F915DCBAA6265185 /* CaptureSessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8BF9CDD3518925AACA2D7B3 /* CaptureSessionController.swift */; };
+		AE14324353D0261A60A44204 /* ReplayMoment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47AF6914623BC3E01512B073 /* ReplayMoment.swift */; };
+		C26975B05355C59BDC759896 /* MomentExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBA89B12132AB5FBC5FD4CFA /* MomentExporter.swift */; };
+		D00749CBBAF49034B9B293F7 /* MomentRecutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F96C5C91086CCA433A98C1E8 /* MomentRecutView.swift */; };
 		E4217BCDE1B8A4624A57A4CB /* PhotoLibrarySaver.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE64CBD778D7AA5D433614A /* PhotoLibrarySaver.swift */; };
 		E8EDA35FA653CFDAD05B8936 /* BufferLength.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6EB1F1EAFA4CC01CC2168B3 /* BufferLength.swift */; };
 		EE3F6455097C7D80C6E1896F /* CameraScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B4882A1ABEF78B3C6AE773B /* CameraScreen.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		2AEFE2BF7423CCB6E9635623 /* MomentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MomentStore.swift; sourceTree = "<group>"; };
 		2B4882A1ABEF78B3C6AE773B /* CameraScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraScreen.swift; sourceTree = "<group>"; };
+		47AF6914623BC3E01512B073 /* ReplayMoment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplayMoment.swift; sourceTree = "<group>"; };
 		4B105234F87690ED98BD6C40 /* CameraPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreviewView.swift; sourceTree = "<group>"; };
 		707FD31932ADAB93629E0E61 /* ReplayApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplayApp.swift; sourceTree = "<group>"; };
 		90E7918C2C86FBFE462F7FF9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -28,9 +36,13 @@
 		B470EA1CF5543CDE8CB48E72 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		BEBBD0073928F22DADA07B19 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		BEE64CBD778D7AA5D433614A /* PhotoLibrarySaver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoLibrarySaver.swift; sourceTree = "<group>"; };
+		D36B8CB1228722AD953DABBA /* CameraRollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraRollView.swift; sourceTree = "<group>"; };
+		D57E5732466E5A1BFEDA82F6 /* ReplayAlbumLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplayAlbumLibrary.swift; sourceTree = "<group>"; };
 		D8BF9CDD3518925AACA2D7B3 /* CaptureSessionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureSessionController.swift; sourceTree = "<group>"; };
+		DBA89B12132AB5FBC5FD4CFA /* MomentExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MomentExporter.swift; sourceTree = "<group>"; };
 		DD6BF220309B556BE4CAF168 /* SegmentStitcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SegmentStitcher.swift; sourceTree = "<group>"; };
 		F6EB1F1EAFA4CC01CC2168B3 /* BufferLength.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BufferLength.swift; sourceTree = "<group>"; };
+		F96C5C91086CCA433A98C1E8 /* MomentRecutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MomentRecutView.swift; sourceTree = "<group>"; };
 		FDF1C9F9B1889BFFAD0EBB8F /* Replay.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Replay.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -38,7 +50,9 @@
 		02EFC970C6382A9DB22F0DB5 /* Photos */ = {
 			isa = PBXGroup;
 			children = (
+				DBA89B12132AB5FBC5FD4CFA /* MomentExporter.swift */,
 				BEE64CBD778D7AA5D433614A /* PhotoLibrarySaver.swift */,
+				D57E5732466E5A1BFEDA82F6 /* ReplayAlbumLibrary.swift */,
 			);
 			path = Photos;
 			sourceTree = "<group>";
@@ -55,7 +69,9 @@
 			isa = PBXGroup;
 			children = (
 				4B105234F87690ED98BD6C40 /* CameraPreviewView.swift */,
+				D36B8CB1228722AD953DABBA /* CameraRollView.swift */,
 				2B4882A1ABEF78B3C6AE773B /* CameraScreen.swift */,
+				F96C5C91086CCA433A98C1E8 /* MomentRecutView.swift */,
 				BEBBD0073928F22DADA07B19 /* SettingsView.swift */,
 			);
 			path = UI;
@@ -76,6 +92,7 @@
 				90E7918C2C86FBFE462F7FF9 /* Info.plist */,
 				707FD31932ADAB93629E0E61 /* ReplayApp.swift */,
 				DF246269EE1B307E80761BDE /* Camera */,
+				DF7008A06BA31E57BEC9FF1C /* Moments */,
 				02EFC970C6382A9DB22F0DB5 /* Photos */,
 				6137BD5FB69C445762D87E3F /* UI */,
 			);
@@ -91,6 +108,15 @@
 				DD6BF220309B556BE4CAF168 /* SegmentStitcher.swift */,
 			);
 			path = Camera;
+			sourceTree = "<group>";
+		};
+		DF7008A06BA31E57BEC9FF1C /* Moments */ = {
+			isa = PBXGroup;
+			children = (
+				2AEFE2BF7423CCB6E9635623 /* MomentStore.swift */,
+				47AF6914623BC3E01512B073 /* ReplayMoment.swift */,
+			);
+			path = Moments;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -165,10 +191,16 @@
 			files = (
 				E8EDA35FA653CFDAD05B8936 /* BufferLength.swift in Sources */,
 				5ABFA6F30992D467B037044C /* CameraPreviewView.swift in Sources */,
+				2F28BCDA6C8D2611DFBB974A /* CameraRollView.swift in Sources */,
 				EE3F6455097C7D80C6E1896F /* CameraScreen.swift in Sources */,
 				7FA3AC09F915DCBAA6265185 /* CaptureSessionController.swift in Sources */,
+				C26975B05355C59BDC759896 /* MomentExporter.swift in Sources */,
+				D00749CBBAF49034B9B293F7 /* MomentRecutView.swift in Sources */,
+				41C9273318962F056C7C31BE /* MomentStore.swift in Sources */,
 				E4217BCDE1B8A4624A57A4CB /* PhotoLibrarySaver.swift in Sources */,
+				14BDE5A84EE1F79B9C40FFB0 /* ReplayAlbumLibrary.swift in Sources */,
 				042A1B764249B31F8E8CB6B0 /* ReplayApp.swift in Sources */,
+				AE14324353D0261A60A44204 /* ReplayMoment.swift in Sources */,
 				068C9A7B9283C4C6763E1B71 /* RollingBufferRecorder.swift in Sources */,
 				6B711C433BF358B1A016CC44 /* SegmentStitcher.swift in Sources */,
 				7C8695E895794BFCC6D32782 /* SettingsView.swift in Sources */,

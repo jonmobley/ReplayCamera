@@ -6,8 +6,10 @@ Replay is an iOS camera app that continuously buffers the last **30 seconds** of
 
 1. Open the app — the camera starts buffering immediately.
 2. Hold until the moment you want.
-3. Tap **Save** — Replay instantly keeps your default length (30 seconds by default) and writes it to Photos in the background.
-4. Change the default in **Settings** (gear) anytime: 5 / 10 / 15 / 30 seconds.
+3. Tap **Save** — Replay keeps your default length (30s by default) and writes it to a **Replay** album in Photos (syncs via iCloud Photos when enabled).
+4. A frozen **Moment** stays available briefly so you can save another length from the same take.
+5. Open the in-app roll (photo stack button) for Moments + saved clips.
+6. Change the default save length in **Settings** (gear): 5 / 10 / 15 / 30 seconds.
 
 ## Requirements
 
@@ -19,11 +21,4 @@ Replay is an iOS camera app that continuously buffers the last **30 seconds** of
 ```bash
 xcodegen generate
 open Replay.xcodeproj
-```
-
-Or from the command line:
-
-```bash
-xcodegen generate
-xcodebuild -scheme Replay -destination 'generic/platform=iOS Simulator' build
 ```

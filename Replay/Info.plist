@@ -25,7 +25,9 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Replay includes microphone audio in the buffered clip you save.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Replay saves your clip to Photos.</string>
+	<string>Replay saves your clip to the Replay album in Photos.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Replay shows your Replay album and saves new clips there. With iCloud Photos on, they sync automatically.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

@@ -21,10 +21,11 @@ final class CaptureSessionController: NSObject, ObservableObject {
     @MainActor @Published private(set) var isUsingFrontCamera = false
 
     let bufferTarget = BufferLength.maxBufferSeconds
+    let momentStore = MomentStore.shared
 
     @MainActor
     var canSave: Bool {
-        bufferedSeconds >= 0.5 && isSessionRunning
+        bufferedSeconds >= 0.5 && isSessionRunning && !isSaveCoolingDown
     }
 
     // MARK: - Capture
@@ -42,6 +43,8 @@ final class CaptureSessionController: NSObject, ObservableObject {
     private var rotationObservations = [NSKeyValueObservation]()
     private var lastCaptureRotationAngle: CGFloat?
     private var usingFrontCamera = false
+    @MainActor @Published private var isSaveCoolingDown = false
+    private var exportTask: Task<Void, Never>?
 
     // MARK: - Lifecycle
 
@@ -100,17 +103,18 @@ final class CaptureSessionController: NSObject, ObservableObject {
         }
     }
 
-    /// Saves the preferred trailing length immediately; export finishes in the background.
+    /// One-tap save: instant feedback, then moment + Photos album in background.
     @MainActor
     func saveReplay() {
         guard canSave else { return }
 
         let trailingSeconds = BufferLength.exportSeconds(buffered: bufferedSeconds)
+        beginSaveCooldown()
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         statusMessage = "Saved"
         scheduleStatusClear()
 
-        Task { @MainActor [weak self] in
+        exportTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let segments = await self.snapshotSegments()
             guard !segments.isEmpty else {
@@ -118,18 +122,42 @@ final class CaptureSessionController: NSObject, ObservableObject {
                 self.scheduleStatusClear()
                 return
             }
+
             do {
-                let stitched = try await SegmentStitcher.stitch(
+                let full = try await SegmentStitcher.stitch(
                     segments,
-                    trailingSeconds: trailingSeconds
+                    trailingSeconds: BufferLength.maxBufferSeconds
                 )
-                try await PhotoLibrarySaver.saveVideo(at: stitched)
-                try? FileManager.default.removeItem(at: stitched)
+                let fullDuration = try await Self.duration(of: full)
+                let moment = try self.momentStore.add(
+                    from: full,
+                    duration: fullDuration
+                )
+                // Master lives in MomentStore; drop the stitch temp.
+                try? FileManager.default.removeItem(at: full)
+
+                let cutURL = try await MomentExporter.exportTrailing(
+                    from: moment.fileURL,
+                    seconds: trailingSeconds
+                )
+                try await PhotoLibrarySaver.saveVideo(at: cutURL)
+                try? FileManager.default.removeItem(at: cutURL)
             } catch {
                 self.statusMessage = error.localizedDescription
                 self.scheduleStatusClear()
             }
         }
+    }
+
+    /// Exports another length from a frozen moment into the Replay album.
+    @MainActor
+    func saveMoment(_ moment: ReplayMoment, length: BufferLength) async throws {
+        let cut = try await MomentExporter.exportTrailing(
+            from: moment.fileURL,
+            seconds: length.seconds
+        )
+        try await PhotoLibrarySaver.saveVideo(at: cut)
+        try? FileManager.default.removeItem(at: cut)
     }
 
     private func snapshotSegments() async -> [BufferSegment] {
@@ -186,13 +214,6 @@ final class CaptureSessionController: NSObject, ObservableObject {
                 self.bufferedSeconds = 0
             }
         }
-    }
-
-    /// Opens the system Photos app (Camera Roll).
-    @MainActor
-    func openCameraRoll() {
-        guard let url = URL(string: "photos-redirect://") else { return }
-        UIApplication.shared.open(url)
     }
 
     // MARK: - Session setup
@@ -335,11 +356,28 @@ final class CaptureSessionController: NSObject, ObservableObject {
         connection.videoRotationAngle = angle
     }
 
+    // MARK: - Helpers
+
     private static func requestAccess(for mediaType: AVMediaType) async -> Bool {
         await withCheckedContinuation { continuation in
             AVCaptureDevice.requestAccess(for: mediaType) { granted in
                 continuation.resume(returning: granted)
             }
+        }
+    }
+
+    private static func duration(of url: URL) async throws -> TimeInterval {
+        let asset = AVURLAsset(url: url)
+        let time = try await asset.load(.duration)
+        return CMTimeGetSeconds(time)
+    }
+
+    @MainActor
+    private func beginSaveCooldown() {
+        isSaveCoolingDown = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 900_000_000)
+            isSaveCoolingDown = false
         }
     }
 

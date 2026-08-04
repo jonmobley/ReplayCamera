@@ -22,6 +22,9 @@ enum BufferLength: Int, CaseIterable, Identifiable {
     /// Settings label, e.g. "30 seconds".
     var settingsTitle: String { "\(rawValue) seconds" }
 
+    /// Action label for re-cut, e.g. "Save 30 Seconds".
+    var saveActionTitle: String { "Save \(rawValue) Seconds" }
+
     /// Maximum trailing window kept while the camera is open.
     static let maxBufferSeconds: TimeInterval = 30
 
