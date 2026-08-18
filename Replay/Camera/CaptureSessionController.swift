@@ -21,11 +21,10 @@ final class CaptureSessionController: NSObject, ObservableObject {
     @MainActor @Published private(set) var isUsingFrontCamera = false
 
     let bufferTarget = BufferLength.maxBufferSeconds
-    let momentStore = MomentStore.shared
 
     @MainActor
     var canSave: Bool {
-        bufferedSeconds >= 0.5 && isSessionRunning && !isSaveCoolingDown
+        bufferedSeconds >= 0.5 && isSessionRunning && !isSaving
     }
 
     // MARK: - Capture
@@ -43,8 +42,9 @@ final class CaptureSessionController: NSObject, ObservableObject {
     private var rotationObservations = [NSKeyValueObservation]()
     private var lastCaptureRotationAngle: CGFloat?
     private var usingFrontCamera = false
-    @MainActor @Published private var isSaveCoolingDown = false
+    @MainActor @Published private(set) var isSaving = false
     private var exportTask: Task<Void, Never>?
+    private var didWarnMicDenied = false
 
     // MARK: - Lifecycle
 
@@ -76,6 +76,11 @@ final class CaptureSessionController: NSObject, ObservableObject {
                 statusMessage = "Camera access is required."
                 return
             }
+            if !micOK, !didWarnMicDenied {
+                didWarnMicDenied = true
+                statusMessage = "Mic off — clips will be silent."
+                scheduleStatusClear()
+            }
             sessionQueue.async { [weak self] in
                 self?.configureSessionLocked(includeAudio: micOK)
                 self?.session.startRunning()
@@ -103,20 +108,24 @@ final class CaptureSessionController: NSObject, ObservableObject {
         }
     }
 
-    /// One-tap save: instant feedback, then moment + Photos album in background.
+    /// One-tap save: stitch buffer, freeze a Moment, write preferred length to Photos.
     @MainActor
     func saveReplay() {
         guard canSave else { return }
 
         let trailingSeconds = BufferLength.exportSeconds(buffered: bufferedSeconds)
-        beginSaveCooldown()
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-        statusMessage = "Saved"
-        scheduleStatusClear()
+        isSaving = true
+        statusMessage = "Saving…"
 
+        exportTask?.cancel()
         exportTask = Task { @MainActor [weak self] in
             guard let self else { return }
+            defer { self.isSaving = false }
+
             let segments = await self.snapshotSegments()
+            defer { RollingBufferRecorder.cleanupExportSnapshot(segments) }
+
+            guard !Task.isCancelled else { return }
             guard !segments.isEmpty else {
                 self.statusMessage = "Nothing buffered yet."
                 self.scheduleStatusClear()
@@ -129,11 +138,10 @@ final class CaptureSessionController: NSObject, ObservableObject {
                     trailingSeconds: BufferLength.maxBufferSeconds
                 )
                 let fullDuration = try await Self.duration(of: full)
-                let moment = try self.momentStore.add(
+                let moment = try MomentStore.shared.add(
                     from: full,
                     duration: fullDuration
                 )
-                // Master lives in MomentStore; drop the stitch temp.
                 try? FileManager.default.removeItem(at: full)
 
                 let cutURL = try await MomentExporter.exportTrailing(
@@ -142,7 +150,13 @@ final class CaptureSessionController: NSObject, ObservableObject {
                 )
                 try await PhotoLibrarySaver.saveVideo(at: cutURL)
                 try? FileManager.default.removeItem(at: cutURL)
+
+                guard !Task.isCancelled else { return }
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                self.statusMessage = "Saved"
+                self.scheduleStatusClear()
             } catch {
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
                 self.statusMessage = error.localizedDescription
                 self.scheduleStatusClear()
             }
@@ -172,6 +186,13 @@ final class CaptureSessionController: NSObject, ObservableObject {
 
     /// Switches between front and back cameras and resets the buffer.
     func flipCamera() {
+        Task { @MainActor in
+            // Export owns hard-linked snapshot files, so flip is safe mid-save.
+            if !isSaving {
+                statusMessage = "Buffer reset"
+                scheduleStatusClear()
+            }
+        }
         sessionQueue.async { [weak self] in
             guard let self else { return }
             self.session.beginConfiguration()
@@ -370,15 +391,6 @@ final class CaptureSessionController: NSObject, ObservableObject {
         let asset = AVURLAsset(url: url)
         let time = try await asset.load(.duration)
         return CMTimeGetSeconds(time)
-    }
-
-    @MainActor
-    private func beginSaveCooldown() {
-        isSaveCoolingDown = true
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 900_000_000)
-            isSaveCoolingDown = false
-        }
     }
 
     @MainActor

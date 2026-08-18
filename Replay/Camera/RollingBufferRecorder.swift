@@ -35,11 +35,15 @@ final class RollingBufferRecorder: NSObject {
     private var segmentStartPTS: CMTime?
     private var lastVideoPTS: CMTime?
     private var isFinishingSegment = false
+    private var pendingFinishCount = 0
+    /// Bumped on `reset` so in-flight `finishWriting` callbacks are ignored.
+    private var generation = 0
     private var videoSettings: [String: Any] = [:]
     private var audioSettings: [String: Any]?
     private var pendingFlush: (([BufferSegment]) -> Void)?
 
     private let segmentsDirectory: URL
+    private let exportSnapshotsDirectory: URL
 
     /// Called on the main queue when reported buffer duration changes.
     var onBufferDurationChange: ((TimeInterval) -> Void)?
@@ -58,15 +62,25 @@ final class RollingBufferRecorder: NSObject {
         self.queue = queue
         self.bufferDuration = bufferDuration
         self.segmentDuration = segmentDuration
-        let base = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ReplaySegments", isDirectory: true)
-        self.segmentsDirectory = base
+        let tmp = FileManager.default.temporaryDirectory
+        self.segmentsDirectory = tmp.appendingPathComponent(
+            "ReplaySegments",
+            isDirectory: true
+        )
+        self.exportSnapshotsDirectory = tmp.appendingPathComponent(
+            "ReplayExportSnapshots",
+            isDirectory: true
+        )
         super.init()
         try? FileManager.default.createDirectory(
-            at: base,
+            at: segmentsDirectory,
             withIntermediateDirectories: true
         )
-        clearAllSegmentFiles()
+        try? FileManager.default.createDirectory(
+            at: exportSnapshotsDirectory,
+            withIntermediateDirectories: true
+        )
+        clearDirectory(segmentsDirectory)
     }
 
     // MARK: - Public
@@ -93,7 +107,7 @@ final class RollingBufferRecorder: NSObject {
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         lastVideoPTS = pts
 
-        if currentWriter == nil, !isFinishingSegment {
+        if currentWriter == nil, !isFinishingSegment, pendingFlush == nil {
             startNewSegment(at: pts)
         }
 
@@ -120,15 +134,18 @@ final class RollingBufferRecorder: NSObject {
         _ = input.append(sampleBuffer)
     }
 
-    /// Finishes the open segment, then returns the trailing window snapshot.
+    /// Finishes every in-flight writer, then returns hard-linked copies of the
+    /// trailing window so a later `reset` cannot delete files mid-export.
     func flushAndSnapshot(completion: @escaping ([BufferSegment]) -> Void) {
-        if currentWriter == nil {
-            prune()
-            completion(segments)
-            return
+        if let existing = pendingFlush {
+            existing([])
         }
         pendingFlush = completion
-        closeOpenSegment()
+        if currentWriter != nil {
+            closeOpenSegment(discard: false)
+        } else {
+            tryDeliverPendingFlush()
+        }
     }
 
     /// Ends the open segment so the next frame can start with new video settings
@@ -142,16 +159,28 @@ final class RollingBufferRecorder: NSObject {
 
     /// Tear down the open writer and delete all segment files.
     func reset() {
-        pendingFlush = nil
+        generation += 1
+        if let pending = pendingFlush {
+            pendingFlush = nil
+            pending([])
+        }
         if currentWriter != nil {
             closeOpenSegment(discard: true)
         } else {
-            clearAllSegmentFiles()
+            clearDirectory(segmentsDirectory)
             segments.removeAll()
             segmentStartPTS = nil
             lastVideoPTS = nil
+            isFinishingSegment = pendingFinishCount > 0
             publishDuration()
         }
+    }
+
+    /// Deletes an export snapshot directory produced by `flushAndSnapshot`.
+    static func cleanupExportSnapshot(_ segments: [BufferSegment]) {
+        guard let first = segments.first else { return }
+        let dir = first.url.deletingLastPathComponent()
+        try? FileManager.default.removeItem(at: dir)
     }
 
     // MARK: - Segment lifecycle
@@ -203,11 +232,10 @@ final class RollingBufferRecorder: NSObject {
     }
 
     private func rotateSegment(nextPTS: CMTime) {
-        isFinishingSegment = true
-        let finishedURL = currentWriter?.outputURL
+        guard let writer = currentWriter else { return }
+        let finishedURL = writer.outputURL
         let start = segmentStartPTS ?? nextPTS
         let duration = max(0, CMTimeGetSeconds(CMTimeSubtract(nextPTS, start)))
-        let writer = currentWriter
 
         videoInput?.markAsFinished()
         audioInput?.markAsFinished()
@@ -217,26 +245,20 @@ final class RollingBufferRecorder: NSObject {
         segmentStartPTS = nil
 
         startNewSegment(at: nextPTS)
-
-        writer?.finishWriting { [weak self] in
-            guard let self else { return }
-            self.queue.async {
-                self.handleFinishedSegment(
-                    status: writer?.status,
-                    url: finishedURL,
-                    duration: duration
-                )
-            }
-        }
+        beginFinish(
+            writer: writer,
+            url: finishedURL,
+            duration: duration,
+            discard: false
+        )
     }
 
     private func closeOpenSegment(discard: Bool = false) {
         guard let writer = currentWriter else {
-            deliverPendingFlush()
+            tryDeliverPendingFlush()
             return
         }
 
-        isFinishingSegment = true
         let finishedURL = writer.outputURL
         let start = segmentStartPTS
         let end = lastVideoPTS
@@ -252,48 +274,105 @@ final class RollingBufferRecorder: NSObject {
         audioInput = nil
         segmentStartPTS = nil
 
+        beginFinish(
+            writer: writer,
+            url: finishedURL,
+            duration: duration,
+            discard: discard
+        )
+    }
+
+    private func beginFinish(
+        writer: AVAssetWriter,
+        url: URL,
+        duration: TimeInterval,
+        discard: Bool
+    ) {
+        pendingFinishCount += 1
+        isFinishingSegment = true
+        let gen = generation
+
         writer.finishWriting { [weak self] in
             guard let self else { return }
             self.queue.async {
+                defer {
+                    self.pendingFinishCount = max(0, self.pendingFinishCount - 1)
+                    if self.pendingFinishCount == 0 {
+                        self.isFinishingSegment = false
+                    }
+                    self.publishDuration()
+                    self.tryDeliverPendingFlush()
+                }
+
+                guard gen == self.generation else {
+                    try? FileManager.default.removeItem(at: url)
+                    return
+                }
+
                 if discard {
-                    try? FileManager.default.removeItem(at: finishedURL)
-                    self.clearAllSegmentFiles()
+                    try? FileManager.default.removeItem(at: url)
+                    self.clearDirectory(self.segmentsDirectory)
                     self.segments.removeAll()
                     self.lastVideoPTS = nil
-                } else if writer.status == .completed, duration > 0.05 {
+                    return
+                }
+
+                if writer.status == .completed, duration > 0.05 {
                     self.segments.append(
-                        BufferSegment(url: finishedURL, duration: duration)
+                        BufferSegment(url: url, duration: duration)
                     )
                     self.prune()
                 } else {
-                    try? FileManager.default.removeItem(at: finishedURL)
+                    try? FileManager.default.removeItem(at: url)
                 }
-                self.isFinishingSegment = false
-                self.publishDuration()
-                self.deliverPendingFlush()
             }
         }
     }
 
-    private func handleFinishedSegment(
-        status: AVAssetWriter.Status?,
-        url: URL?,
-        duration: TimeInterval
-    ) {
-        if status == .completed, let url, duration > 0.05 {
-            segments.append(BufferSegment(url: url, duration: duration))
-            prune()
-        } else if let url {
-            try? FileManager.default.removeItem(at: url)
-        }
-        isFinishingSegment = false
-        publishDuration()
+    private func tryDeliverPendingFlush() {
+        guard pendingFlush != nil else { return }
+        guard pendingFinishCount == 0, currentWriter == nil else { return }
+
+        let completion = pendingFlush
+        pendingFlush = nil
+        prune()
+        let snapshot = makeExportSnapshot(from: segments)
+        completion?(snapshot)
     }
 
-    private func deliverPendingFlush() {
-        guard let pendingFlush else { return }
-        self.pendingFlush = nil
-        pendingFlush(segments)
+    /// Hard-links (or copies) segment files so export owns them independently.
+    private func makeExportSnapshot(from segments: [BufferSegment]) -> [BufferSegment] {
+        guard !segments.isEmpty else { return [] }
+
+        let dir = exportSnapshotsDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(
+                at: dir,
+                withIntermediateDirectories: true
+            )
+        } catch {
+            return []
+        }
+
+        var snapshot: [BufferSegment] = []
+        for segment in segments {
+            let dest = dir.appendingPathComponent(segment.url.lastPathComponent)
+            do {
+                try FileManager.default.linkItem(at: segment.url, to: dest)
+                snapshot.append(BufferSegment(url: dest, duration: segment.duration))
+            } catch {
+                do {
+                    try FileManager.default.copyItem(at: segment.url, to: dest)
+                    snapshot.append(
+                        BufferSegment(url: dest, duration: segment.duration)
+                    )
+                } catch {
+                    continue
+                }
+            }
+        }
+        return snapshot
     }
 
     private func prune() {
@@ -316,10 +395,10 @@ final class RollingBufferRecorder: NSObject {
         }
     }
 
-    private func clearAllSegmentFiles() {
+    private func clearDirectory(_ directory: URL) {
         let fm = FileManager.default
         guard let files = try? fm.contentsOfDirectory(
-            at: segmentsDirectory,
+            at: directory,
             includingPropertiesForKeys: nil
         ) else { return }
         for file in files {
