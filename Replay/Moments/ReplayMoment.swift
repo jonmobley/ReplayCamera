@@ -7,15 +7,10 @@
 
 import Foundation
 
-/// A frozen take kept briefly so the user can export another length.
+/// A frozen take kept briefly so the user can save it again.
 struct ReplayMoment: Identifiable, Equatable {
     let id: UUID
     let createdAt: Date
     let duration: TimeInterval
     let fileURL: URL
-
-    /// Lengths that can still be cut from this moment.
-    var availableLengths: [BufferLength] {
-        BufferLength.allCases.filter { $0.seconds <= duration + 0.25 }
-    }
 }

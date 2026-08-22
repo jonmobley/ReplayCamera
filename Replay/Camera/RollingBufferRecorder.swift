@@ -24,6 +24,8 @@ final class RollingBufferRecorder: NSObject {
 
     private(set) var bufferDuration: TimeInterval
     let segmentDuration: TimeInterval
+    /// When true, finished segments are kept for the whole armed session.
+    var retainsFullSession: Bool
     private let queue: DispatchQueue
 
     // MARK: - State
@@ -41,6 +43,9 @@ final class RollingBufferRecorder: NSObject {
     private var videoSettings: [String: Any] = [:]
     private var audioSettings: [String: Any]?
     private var pendingFlush: (([BufferSegment]) -> Void)?
+    /// One-shot clip snapshot after sealing the open segment (recording continues).
+    private var pendingClip: (([BufferSegment]) -> Void)?
+    private var pendingClipSeconds: TimeInterval = 30
 
     private let segmentsDirectory: URL
     private let exportSnapshotsDirectory: URL
@@ -52,16 +57,19 @@ final class RollingBufferRecorder: NSObject {
 
     /// - Parameters:
     ///   - queue: Serial queue used for all recorder work (typically the capture queue).
-    ///   - bufferDuration: Trailing window length to keep (default 15s).
+    ///   - bufferDuration: Trailing window when `retainsFullSession` is false.
     ///   - segmentDuration: Target length of each on-disk segment (default 2s).
+    ///   - retainsFullSession: Keep every segment until reset (default true).
     init(
         queue: DispatchQueue,
-        bufferDuration: TimeInterval = 15,
-        segmentDuration: TimeInterval = 2
+        bufferDuration: TimeInterval = 30,
+        segmentDuration: TimeInterval = 2,
+        retainsFullSession: Bool = true
     ) {
         self.queue = queue
         self.bufferDuration = bufferDuration
         self.segmentDuration = segmentDuration
+        self.retainsFullSession = retainsFullSession
         let tmp = FileManager.default.temporaryDirectory
         self.segmentsDirectory = tmp.appendingPathComponent(
             "ReplaySegments",
@@ -148,6 +156,24 @@ final class RollingBufferRecorder: NSObject {
         }
     }
 
+    /// Seals the open segment, hard-links the trailing `seconds`, and keeps
+    /// recording into a new segment. Live session files are left intact.
+    func snapshotTrailingClip(
+        seconds: TimeInterval,
+        completion: @escaping ([BufferSegment]) -> Void
+    ) {
+        if let existing = pendingClip {
+            existing([])
+        }
+        pendingClipSeconds = max(0.5, seconds)
+        pendingClip = completion
+
+        if currentWriter != nil, let pts = lastVideoPTS, !isFinishingSegment {
+            rotateSegment(nextPTS: pts)
+        }
+        tryDeliverPendingClip()
+    }
+
     /// Ends the open segment so the next frame can start with new video settings
     /// (e.g. after an orientation change that swaps frame dimensions).
     func forceRotateSegment() {
@@ -163,6 +189,10 @@ final class RollingBufferRecorder: NSObject {
         if let pending = pendingFlush {
             pendingFlush = nil
             pending([])
+        }
+        if let clip = pendingClip {
+            pendingClip = nil
+            clip([])
         }
         if currentWriter != nil {
             closeOpenSegment(discard: true)
@@ -302,6 +332,7 @@ final class RollingBufferRecorder: NSObject {
                     }
                     self.publishDuration()
                     self.tryDeliverPendingFlush()
+                    self.tryDeliverPendingClip()
                 }
 
                 guard gen == self.generation else {
@@ -340,6 +371,31 @@ final class RollingBufferRecorder: NSObject {
         completion?(snapshot)
     }
 
+    private func tryDeliverPendingClip() {
+        guard pendingClip != nil else { return }
+        // Allow an open writer (new segment after rotate); only wait on finishes.
+        guard pendingFinishCount == 0 else { return }
+
+        let completion = pendingClip
+        pendingClip = nil
+        let trailing = trailingSegments(seconds: pendingClipSeconds)
+        let snapshot = makeExportSnapshot(from: trailing)
+        completion?(snapshot)
+    }
+
+    /// Finished segments covering the end of the session, oldest → newest.
+    private func trailingSegments(seconds: TimeInterval) -> [BufferSegment] {
+        guard !segments.isEmpty else { return [] }
+        var collected: [BufferSegment] = []
+        var total: TimeInterval = 0
+        for segment in segments.reversed() {
+            collected.insert(segment, at: 0)
+            total += segment.duration
+            if total >= seconds { break }
+        }
+        return collected
+    }
+
     /// Hard-links (or copies) segment files so export owns them independently.
     private func makeExportSnapshot(from segments: [BufferSegment]) -> [BufferSegment] {
         guard !segments.isEmpty else { return [] }
@@ -376,6 +432,7 @@ final class RollingBufferRecorder: NSObject {
     }
 
     private func prune() {
+        guard !retainsFullSession else { return }
         var total = segments.reduce(0.0) { $0 + $1.duration }
         while total > bufferDuration, segments.count > 1 {
             let removed = segments.removeFirst()
@@ -389,7 +446,7 @@ final class RollingBufferRecorder: NSObject {
         if let start = segmentStartPTS, let end = lastVideoPTS {
             total += max(0, CMTimeGetSeconds(CMTimeSubtract(end, start)))
         }
-        let reported = min(total, bufferDuration)
+        let reported = retainsFullSession ? total : min(total, bufferDuration)
         DispatchQueue.main.async { [weak self] in
             self?.onBufferDurationChange?(reported)
         }

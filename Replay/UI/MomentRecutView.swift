@@ -8,14 +8,14 @@
 import AVKit
 import SwiftUI
 
-/// Lets the user export another length from a frozen moment.
+/// Lets the user save the frozen moment to the Replay album again.
 struct MomentRecutView: View {
     let moment: ReplayMoment
     var onFinished: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
-    @State private var isExporting = false
     @State private var errorMessage: String?
+    @State private var didSave = false
 
     var body: some View {
         NavigationStack {
@@ -24,21 +24,18 @@ struct MomentRecutView: View {
                     .frame(maxHeight: 280)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-                Text("Save another length from this take.")
+                Text("Up to \(Int(moment.duration.rounded(.down)))s from this take.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
 
-                ForEach(moment.availableLengths) { length in
-                    Button {
-                        export(length)
-                    } label: {
-                        Text(length.saveActionTitle)
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(isExporting)
+                Button {
+                    saveAgain()
+                } label: {
+                    Text("Save to Photos")
+                        .frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.borderedProminent)
+                .disabled(didSave)
 
                 if let errorMessage {
                     Text(errorMessage)
@@ -56,33 +53,25 @@ struct MomentRecutView: View {
                     Button("Done") { dismiss() }
                 }
             }
-            .overlay {
-                if isExporting {
-                    ProgressView("Saving…")
-                        .padding()
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
-                }
-            }
         }
     }
 
-    private func export(_ length: BufferLength) {
-        isExporting = true
+    private func saveAgain() {
         errorMessage = nil
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        didSave = true
         Task {
             do {
                 let cut = try await MomentExporter.exportTrailing(
                     from: moment.fileURL,
-                    seconds: length.seconds
+                    seconds: moment.duration
                 )
                 try await PhotoLibrarySaver.saveVideo(at: cut)
                 try? FileManager.default.removeItem(at: cut)
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
-                isExporting = false
                 onFinished?()
                 dismiss()
             } catch {
-                isExporting = false
+                didSave = false
                 errorMessage = error.localizedDescription
             }
         }

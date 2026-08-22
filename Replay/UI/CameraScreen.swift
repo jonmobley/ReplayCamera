@@ -7,12 +7,12 @@
 
 import SwiftUI
 
-/// Full-bleed camera: preview, roll, Save, flip, moment re-cut, settings.
+/// Full-bleed camera: preview, roll, start/stop shutter, flip, moment.
 struct CameraScreen: View {
     @StateObject private var camera = CaptureSessionController()
+    @StateObject private var orientation = DeviceOrientationObserver()
     @ObservedObject private var moments = MomentStore.shared
 
-    @State private var showSettings = false
     @State private var showRoll = false
     @State private var showMomentRecut = false
 
@@ -26,15 +26,9 @@ struct CameraScreen: View {
             }
 
             VStack {
-                HStack {
-                    if moments.latest != nil {
-                        momentButton
-                    }
-                    Spacer()
-                    settingsButton
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
+                header
+                    .padding(.horizontal, 20)
+                    .padding(.top, 16)
 
                 Spacer()
 
@@ -46,6 +40,7 @@ struct CameraScreen: View {
                         .padding(.vertical, 10)
                         .background(.ultraThinMaterial, in: Capsule())
                         .padding(.bottom, 16)
+                        .rotationEffect(orientation.angle)
                         .transition(.opacity)
                 }
 
@@ -55,10 +50,27 @@ struct CameraScreen: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: camera.statusMessage)
+        .animation(.easeInOut(duration: 0.2), value: camera.isRecording)
         .animation(.easeInOut(duration: 0.2), value: moments.latest?.id)
-        .sheet(isPresented: $showSettings) {
-            SettingsView()
-                .presentationDetents([.medium])
+        .animation(.easeInOut(duration: 0.2), value: orientation.angle)
+        .confirmationDialog(
+            "Save Recording?",
+            isPresented: saveDialogBinding,
+            titleVisibility: .visible
+        ) {
+            ForEach(camera.availableSaveOptions) { option in
+                Button(option.title) {
+                    camera.confirmSave(option)
+                }
+            }
+            Button("Don't Save", role: .destructive) {
+                camera.discardRecording()
+            }
+            Button("Cancel", role: .cancel) {
+                camera.discardRecording()
+            }
+        } message: {
+            Text("How much do you want to keep?")
         }
         .sheet(isPresented: $showRoll) {
             CameraRollView(moments: moments)
@@ -72,20 +84,65 @@ struct CameraScreen: View {
         .onDisappear { camera.stop() }
     }
 
-    // MARK: - Controls
+    // MARK: - Bindings
 
-    private var settingsButton: some View {
-        Button {
-            showSettings = true
-        } label: {
-            Image(systemName: "gearshape.fill")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 40, height: 40)
-                .background(.black.opacity(0.45), in: Circle())
-        }
-        .accessibilityLabel("Settings")
+    private var saveDialogBinding: Binding<Bool> {
+        Binding(
+            get: { camera.isChoosingSave },
+            set: { presented in
+                if !presented, camera.isChoosingSave {
+                    camera.discardRecording()
+                }
+            }
+        )
     }
+
+    // MARK: - Header
+
+    private var header: some View {
+        ZStack {
+            HStack {
+                if moments.latest != nil {
+                    momentButton
+                } else {
+                    Color.clear.frame(width: 40, height: 40)
+                }
+                Spacer()
+                Color.clear.frame(width: 40, height: 40)
+            }
+
+            if camera.isRecording {
+                recordingTimer
+                    .rotationEffect(orientation.angle)
+            }
+        }
+        .frame(height: 40)
+    }
+
+    private var recordingTimer: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(Color.red)
+                .frame(width: 8, height: 8)
+            Text(formatDuration(camera.bufferedSeconds))
+                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(.white)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 40)
+        .background(.black.opacity(0.45), in: Capsule())
+        .accessibilityLabel("Recording \(formatDuration(camera.bufferedSeconds))")
+    }
+
+    private func formatDuration(_ seconds: TimeInterval) -> String {
+        let total = max(0, Int(seconds.rounded(.down)))
+        let m = total / 60
+        let s = total % 60
+        return String(format: "%d:%02d", m, s)
+    }
+
+    // MARK: - Controls
 
     private var momentButton: some View {
         Button {
@@ -100,18 +157,42 @@ struct CameraScreen: View {
             .padding(.horizontal, 12)
             .frame(height: 40)
             .background(.black.opacity(0.45), in: Capsule())
+            .rotationEffect(orientation.angle)
         }
         .accessibilityLabel("Last moment")
     }
 
     private var controls: some View {
         HStack {
-            cameraRollButton
+            if camera.isRecording {
+                clipButton
+            } else {
+                cameraRollButton
+            }
             Spacer()
-            saveButton
+            shutterButton
             Spacer()
             flipButton
         }
+    }
+
+    private var clipButton: some View {
+        Button {
+            camera.saveClipWhileRecording()
+        } label: {
+            VStack(spacing: 2) {
+                Image(systemName: "scissors")
+                    .font(.system(size: 18, weight: .semibold))
+                Text("30s")
+                    .font(.system(size: 11, weight: .bold))
+            }
+            .foregroundStyle(.white)
+            .frame(width: 52, height: 52)
+            .background(.black.opacity(0.45), in: Circle())
+            .rotationEffect(orientation.angle)
+        }
+        .disabled(!camera.canClip)
+        .accessibilityLabel("Save last 30 seconds clip")
     }
 
     private var cameraRollButton: some View {
@@ -122,30 +203,35 @@ struct CameraScreen: View {
                 .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 52, height: 52)
-                .background(
-                    .black.opacity(0.45),
-                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                )
+                .background(.black.opacity(0.45), in: Circle())
+                .rotationEffect(orientation.angle)
         }
-        .disabled(camera.permissionDenied)
+        .disabled(camera.permissionDenied || camera.isChoosingSave)
         .accessibilityLabel("Camera Roll")
     }
 
-    private var saveButton: some View {
+    private var shutterButton: some View {
         Button {
-            camera.saveReplay()
+            camera.toggleShutter()
         } label: {
             ZStack {
                 Circle()
                     .strokeBorder(.white, lineWidth: 4)
                     .frame(width: 76, height: 76)
-                Circle()
-                    .fill(camera.canSave ? Color.white : Color.white.opacity(0.35))
-                    .frame(width: 62, height: 62)
+                if camera.isRecording {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.red)
+                        .frame(width: 28, height: 28)
+                        .rotationEffect(orientation.angle)
+                } else {
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: 62, height: 62)
+                }
             }
         }
-        .disabled(!camera.canSave)
-        .accessibilityLabel("Save replay")
+        .disabled(!camera.canToggleShutter)
+        .accessibilityLabel(camera.isRecording ? "Stop recording" : "Start recording")
     }
 
     private var flipButton: some View {
@@ -157,8 +243,9 @@ struct CameraScreen: View {
                 .foregroundStyle(.white)
                 .frame(width: 52, height: 52)
                 .background(.black.opacity(0.45), in: Circle())
+                .rotationEffect(orientation.angle)
         }
-        .disabled(camera.permissionDenied)
+        .disabled(camera.permissionDenied || camera.isChoosingSave)
         .accessibilityLabel("Flip camera")
     }
 

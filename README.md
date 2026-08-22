@@ -1,15 +1,15 @@
 # Replay
 
-Replay is an iOS camera app that continuously buffers the last **30 seconds** of video and audio. Press **Save** when something worth keeping happens — no traditional record / stop.
+Replay is an iOS camera app that buffers while you film, then lets you choose how much to keep when you stop.
 
 ## How it works
 
-1. Open the app — the camera starts buffering immediately.
-2. Hold until the moment you want.
-3. Tap **Save** — Replay keeps your default length (30s by default) and writes it to a **Replay** album in Photos (syncs via iCloud Photos when enabled).
-4. A frozen **Moment** stays available briefly so you can save another length from the same take.
-5. Open the in-app roll (photo stack button) for Moments + saved clips.
-6. Change the default save length in **Settings** (gear): 5 / 10 / 15 / 30 seconds.
+1. Open the app — live preview only.
+2. Aim the phone, then tap the shutter to start.
+3. While recording, tap **Clip** (scissors) to save the last 30 seconds without stopping.
+4. Tap shutter again to stop — choose **Last 30 Seconds**, **Last 60 Seconds** (when long enough), **Full Recording**, or **Don't Save**.
+5. A frozen **Moment** stays available briefly if you want to save that take again.
+6. Open the in-app roll (left of the shutter when idle) for Moments + saved clips.
 
 ## Requirements
 
