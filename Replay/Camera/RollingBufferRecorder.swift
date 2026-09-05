@@ -18,7 +18,7 @@ struct BufferSegment: Sendable {
 /// only the trailing `bufferDuration` window.
 ///
 /// Call `configure`, `append*`, `flushAndSnapshot`, and `reset` on `queue`.
-final class RollingBufferRecorder: NSObject {
+final class RollingBufferRecorder: NSObject, @unchecked Sendable {
 
     // MARK: - Config
 
@@ -323,6 +323,7 @@ final class RollingBufferRecorder: NSObject {
         let gen = generation
 
         writer.finishWriting { [weak self] in
+            let status = writer.status
             guard let self else { return }
             self.queue.async {
                 defer {
@@ -348,7 +349,7 @@ final class RollingBufferRecorder: NSObject {
                     return
                 }
 
-                if writer.status == .completed, duration > 0.05 {
+                if status == .completed, duration > 0.05 {
                     self.segments.append(
                         BufferSegment(url: url, duration: duration)
                     )

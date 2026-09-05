@@ -13,28 +13,38 @@
 		14BDE5A84EE1F79B9C40FFB0 /* ReplayAlbumLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = D57E5732466E5A1BFEDA82F6 /* ReplayAlbumLibrary.swift */; };
 		2F28BCDA6C8D2611DFBB974A /* CameraRollView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36B8CB1228722AD953DABBA /* CameraRollView.swift */; };
 		41C9273318962F056C7C31BE /* MomentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AEFE2BF7423CCB6E9635623 /* MomentStore.swift */; };
+		5308468EB859CD875C7B50D7 /* CaptureQuality.swift in Sources */ = {isa = PBXBuildFile; fileRef = B08B8F9C0A7EB93D127EAA1A /* CaptureQuality.swift */; };
 		5ABFA6F30992D467B037044C /* CameraPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B105234F87690ED98BD6C40 /* CameraPreviewView.swift */; };
+		623AA4B54CD9933EC35AE10C /* CaptureSessionController+DeviceControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1240C2946D73CD69AEE7F247 /* CaptureSessionController+DeviceControls.swift */; };
 		6B711C433BF358B1A016CC44 /* SegmentStitcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD6BF220309B556BE4CAF168 /* SegmentStitcher.swift */; };
 		7FA3AC09F915DCBAA6265185 /* CaptureSessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8BF9CDD3518925AACA2D7B3 /* CaptureSessionController.swift */; };
 		99BEDFB13D1DE8D7D2002736 /* SaveOption.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0B118E034910F6CE2576D00 /* SaveOption.swift */; };
 		AE14324353D0261A60A44204 /* ReplayMoment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47AF6914623BC3E01512B073 /* ReplayMoment.swift */; };
+		B3B6332A4F22D215CD50FA2C /* CaptureSessionController+Interruptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 552C842D8ACC43D3928090B5 /* CaptureSessionController+Interruptions.swift */; };
+		C00FA99ABA8D0D2BDD8FD09E /* MomentRetention.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A6A97AF341863540B7615D7 /* MomentRetention.swift */; };
 		C26975B05355C59BDC759896 /* MomentExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBA89B12132AB5FBC5FD4CFA /* MomentExporter.swift */; };
 		D00749CBBAF49034B9B293F7 /* MomentRecutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F96C5C91086CCA433A98C1E8 /* MomentRecutView.swift */; };
 		DF29C5C38CEE66BA6234703A /* ControlOrientation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3486B56C2C0AF216D5D60C5 /* ControlOrientation.swift */; };
 		E4217BCDE1B8A4624A57A4CB /* PhotoLibrarySaver.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE64CBD778D7AA5D433614A /* PhotoLibrarySaver.swift */; };
 		E8EDA35FA653CFDAD05B8936 /* BufferLength.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6EB1F1EAFA4CC01CC2168B3 /* BufferLength.swift */; };
+		E90567A2645E4717C5F5D796 /* FirstRunTipStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 899A145CE67AF692CB75AE13 /* FirstRunTipStore.swift */; };
 		EE3F6455097C7D80C6E1896F /* CameraScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B4882A1ABEF78B3C6AE773B /* CameraScreen.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		0A6A97AF341863540B7615D7 /* MomentRetention.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MomentRetention.swift; sourceTree = "<group>"; };
+		1240C2946D73CD69AEE7F247 /* CaptureSessionController+DeviceControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CaptureSessionController+DeviceControls.swift"; sourceTree = "<group>"; };
 		2AEFE2BF7423CCB6E9635623 /* MomentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MomentStore.swift; sourceTree = "<group>"; };
 		2B4882A1ABEF78B3C6AE773B /* CameraScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraScreen.swift; sourceTree = "<group>"; };
 		47AF6914623BC3E01512B073 /* ReplayMoment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplayMoment.swift; sourceTree = "<group>"; };
 		4B105234F87690ED98BD6C40 /* CameraPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreviewView.swift; sourceTree = "<group>"; };
+		552C842D8ACC43D3928090B5 /* CaptureSessionController+Interruptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CaptureSessionController+Interruptions.swift"; sourceTree = "<group>"; };
 		707FD31932ADAB93629E0E61 /* ReplayApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplayApp.swift; sourceTree = "<group>"; };
+		899A145CE67AF692CB75AE13 /* FirstRunTipStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstRunTipStore.swift; sourceTree = "<group>"; };
 		90E7918C2C86FBFE462F7FF9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		A3486B56C2C0AF216D5D60C5 /* ControlOrientation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlOrientation.swift; sourceTree = "<group>"; };
 		A7492279808800F98109CBC0 /* RollingBufferRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RollingBufferRecorder.swift; sourceTree = "<group>"; };
+		B08B8F9C0A7EB93D127EAA1A /* CaptureQuality.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureQuality.swift; sourceTree = "<group>"; };
 		B470EA1CF5543CDE8CB48E72 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		BEE64CBD778D7AA5D433614A /* PhotoLibrarySaver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoLibrarySaver.swift; sourceTree = "<group>"; };
 		D36B8CB1228722AD953DABBA /* CameraRollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraRollView.swift; sourceTree = "<group>"; };
@@ -74,6 +84,7 @@
 				D36B8CB1228722AD953DABBA /* CameraRollView.swift */,
 				2B4882A1ABEF78B3C6AE773B /* CameraScreen.swift */,
 				A3486B56C2C0AF216D5D60C5 /* ControlOrientation.swift */,
+				899A145CE67AF692CB75AE13 /* FirstRunTipStore.swift */,
 				F96C5C91086CCA433A98C1E8 /* MomentRecutView.swift */,
 			);
 			path = UI;
@@ -105,7 +116,10 @@
 			isa = PBXGroup;
 			children = (
 				F6EB1F1EAFA4CC01CC2168B3 /* BufferLength.swift */,
+				B08B8F9C0A7EB93D127EAA1A /* CaptureQuality.swift */,
 				D8BF9CDD3518925AACA2D7B3 /* CaptureSessionController.swift */,
+				1240C2946D73CD69AEE7F247 /* CaptureSessionController+DeviceControls.swift */,
+				552C842D8ACC43D3928090B5 /* CaptureSessionController+Interruptions.swift */,
 				A7492279808800F98109CBC0 /* RollingBufferRecorder.swift */,
 				E0B118E034910F6CE2576D00 /* SaveOption.swift */,
 				DD6BF220309B556BE4CAF168 /* SegmentStitcher.swift */,
@@ -116,6 +130,7 @@
 		DF7008A06BA31E57BEC9FF1C /* Moments */ = {
 			isa = PBXGroup;
 			children = (
+				0A6A97AF341863540B7615D7 /* MomentRetention.swift */,
 				2AEFE2BF7423CCB6E9635623 /* MomentStore.swift */,
 				47AF6914623BC3E01512B073 /* ReplayMoment.swift */,
 			);
@@ -196,10 +211,15 @@
 				5ABFA6F30992D467B037044C /* CameraPreviewView.swift in Sources */,
 				2F28BCDA6C8D2611DFBB974A /* CameraRollView.swift in Sources */,
 				EE3F6455097C7D80C6E1896F /* CameraScreen.swift in Sources */,
+				5308468EB859CD875C7B50D7 /* CaptureQuality.swift in Sources */,
+				623AA4B54CD9933EC35AE10C /* CaptureSessionController+DeviceControls.swift in Sources */,
+				B3B6332A4F22D215CD50FA2C /* CaptureSessionController+Interruptions.swift in Sources */,
 				7FA3AC09F915DCBAA6265185 /* CaptureSessionController.swift in Sources */,
 				DF29C5C38CEE66BA6234703A /* ControlOrientation.swift in Sources */,
+				E90567A2645E4717C5F5D796 /* FirstRunTipStore.swift in Sources */,
 				C26975B05355C59BDC759896 /* MomentExporter.swift in Sources */,
 				D00749CBBAF49034B9B293F7 /* MomentRecutView.swift in Sources */,
+				C00FA99ABA8D0D2BDD8FD09E /* MomentRetention.swift in Sources */,
 				41C9273318962F056C7C31BE /* MomentStore.swift in Sources */,
 				E4217BCDE1B8A4624A57A4CB /* PhotoLibrarySaver.swift in Sources */,
 				14BDE5A84EE1F79B9C40FFB0 /* ReplayAlbumLibrary.swift in Sources */,
@@ -248,7 +268,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -262,7 +282,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.3.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -327,7 +347,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -347,7 +367,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.3.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

@@ -15,12 +15,17 @@ struct MomentRecutView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var errorMessage: String?
+    @State private var isSaving = false
     @State private var didSave = false
+
+    private var fileURL: URL {
+        MomentStore.shared.fileURL(for: moment)
+    }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 20) {
-                VideoPlayer(player: AVPlayer(url: moment.fileURL))
+                VideoPlayer(player: AVPlayer(url: fileURL))
                     .frame(maxHeight: 280)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
@@ -28,14 +33,26 @@ struct MomentRecutView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
+                Text(
+                    "Temporary copy — expires after \(MomentStore.shared.retention.title). Saves to Photos stay."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
                 Button {
                     saveAgain()
                 } label: {
-                    Text("Save to Photos")
-                        .frame(maxWidth: .infinity)
+                    if isSaving {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Text(didSave ? "Saved" : "Save to Photos")
+                            .frame(maxWidth: .infinity)
+                    }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(didSave)
+                .disabled(isSaving || didSave)
 
                 if let errorMessage {
                     Text(errorMessage)
@@ -58,20 +75,23 @@ struct MomentRecutView: View {
 
     private func saveAgain() {
         errorMessage = nil
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-        didSave = true
+        isSaving = true
         Task {
             do {
                 let cut = try await MomentExporter.exportTrailing(
-                    from: moment.fileURL,
+                    from: fileURL,
                     seconds: moment.duration
                 )
                 try await PhotoLibrarySaver.saveVideo(at: cut)
                 try? FileManager.default.removeItem(at: cut)
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                didSave = true
+                isSaving = false
                 onFinished?()
                 dismiss()
             } catch {
-                didSave = false
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                isSaving = false
                 errorMessage = error.localizedDescription
             }
         }

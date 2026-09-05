@@ -16,10 +16,10 @@
 	<string>Replay</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
-	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
-	<key>CFBundleVersion</key>
-	<string>1</string>
+		<key>CFBundleShortVersionString</key>
+		<string>1.3.0</string>
+		<key>CFBundleVersion</key>
+		<string>3</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Replay continuously buffers recent video so you can save the moment after it happens.</string>
 	<key>NSMicrophoneUsageDescription</key>

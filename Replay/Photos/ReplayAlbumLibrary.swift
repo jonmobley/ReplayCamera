@@ -13,6 +13,7 @@ import UIKit
 final class ReplayAlbumLibrary: NSObject, ObservableObject {
     @Published private(set) var assets: [PHAsset] = []
     @Published private(set) var authorizationDenied = false
+    @Published private(set) var isLimitedAccess = false
 
     private let imageManager = PHCachingImageManager()
     private var observerRegistered = false
@@ -22,10 +23,12 @@ final class ReplayAlbumLibrary: NSObject, ObservableObject {
         let status = await PhotoLibrarySaver.requestReadWriteAccess()
         guard status == .authorized || status == .limited else {
             authorizationDenied = true
+            isLimitedAccess = false
             assets = []
             return
         }
         authorizationDenied = false
+        isLimitedAccess = status == .limited
         registerObserverIfNeeded()
         reloadAssets()
     }
@@ -34,15 +37,28 @@ final class ReplayAlbumLibrary: NSObject, ObservableObject {
     func thumbnail(for asset: PHAsset, size: CGSize) async -> UIImage? {
         await withCheckedContinuation { continuation in
             let options = PHImageRequestOptions()
-            options.deliveryMode = .opportunistic
+            // highQualityFormat delivers a single final callback (opportunistic can
+            // resume twice and crash CheckedContinuation).
+            options.deliveryMode = .highQualityFormat
             options.resizeMode = .fast
             options.isNetworkAccessAllowed = true
+
+            var hasResumed = false
             imageManager.requestImage(
                 for: asset,
                 targetSize: size,
                 contentMode: .aspectFill,
                 options: options
-            ) { image, _ in
+            ) { image, info in
+                let cancelled = (info?[PHImageCancelledKey] as? Bool) ?? false
+                if cancelled {
+                    guard !hasResumed else { return }
+                    hasResumed = true
+                    continuation.resume(returning: nil)
+                    return
+                }
+                guard !hasResumed else { return }
+                hasResumed = true
                 continuation.resume(returning: image)
             }
         }
@@ -57,7 +73,6 @@ final class ReplayAlbumLibrary: NSObject, ObservableObject {
         }
         let options = PHFetchOptions()
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-        options.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.video.rawValue)
         let result = PHAsset.fetchAssets(in: album, options: options)
         var next: [PHAsset] = []
         result.enumerateObjects { asset, _, _ in

@@ -10,7 +10,10 @@ import Combine
 import UIKit
 
 /// Owns the capture session, preview layer, rolling buffer, and save flow.
-final class CaptureSessionController: NSObject, ObservableObject {
+///
+/// Intentionally shared across the main actor (UI) and a serial session queue;
+/// mutable capture state is touched only on `sessionQueue`.
+final class CaptureSessionController: NSObject, ObservableObject, @unchecked Sendable {
 
     // MARK: - Published UI state
 
@@ -18,11 +21,18 @@ final class CaptureSessionController: NSObject, ObservableObject {
     @MainActor @Published private(set) var isSessionRunning = false
     @MainActor @Published private(set) var isRecording = false
     @MainActor @Published private(set) var isChoosingSave = false
-    @MainActor @Published private(set) var statusMessage: String?
+    @MainActor @Published var statusMessage: String?
     @MainActor @Published private(set) var permissionDenied = false
     @MainActor @Published private(set) var isUsingFrontCamera = false
+    @MainActor @Published private(set) var resolution: CaptureResolution = .hd
+    @MainActor @Published private(set) var frameRate: CaptureFrameRate = .fps30
+    @MainActor @Published var zoomFactor: CGFloat = 1
+    @MainActor @Published var isTorchOn = false
+    @MainActor @Published var isTorchAvailable = false
+    @MainActor @Published var isMicMuted = false
 
-    let bufferTarget = BufferLength.maxBufferSeconds
+    private var didWarnLongRecording = false
+    private static let longRecordingWarningSeconds: TimeInterval = 10 * 60
 
     @MainActor
     var canToggleShutter: Bool {
@@ -30,8 +40,28 @@ final class CaptureSessionController: NSObject, ObservableObject {
     }
 
     @MainActor
+    var canChangeQuality: Bool {
+        isSessionRunning && !isRecording && !isChoosingSave && !permissionDenied
+    }
+
+    @MainActor
     var canClip: Bool {
         isRecording && bufferedSeconds >= 0.5 && !isClipping && !isChoosingSave
+    }
+
+    @MainActor
+    var canCapturePhoto: Bool {
+        isRecording && !isCapturingPhoto && !permissionDenied && !isChoosingSave
+    }
+
+    @MainActor
+    var canFlipCamera: Bool {
+        isSessionRunning && !isRecording && !isChoosingSave && !permissionDenied
+    }
+
+    @MainActor
+    var canToggleTorch: Bool {
+        isTorchAvailable && !permissionDenied && !isUsingFrontCamera
     }
 
     /// Save lengths offered for the frozen take.
@@ -43,13 +73,15 @@ final class CaptureSessionController: NSObject, ObservableObject {
     // MARK: - Capture
 
     let previewLayer = AVCaptureVideoPreviewLayer()
-    private let session = AVCaptureSession()
-    private let sessionQueue: DispatchQueue
+    let sessionQueue: DispatchQueue
+    /// Exposed for interruption observers in extensions.
+    let captureSession: AVCaptureSession
     private let videoOutput = AVCaptureVideoDataOutput()
     private let audioOutput = AVCaptureAudioDataOutput()
+    private let photoOutput = AVCapturePhotoOutput()
     private let recorder: RollingBufferRecorder
 
-    private var videoDeviceInput: AVCaptureDeviceInput?
+    var videoDeviceInput: AVCaptureDeviceInput?
     private var audioDeviceInput: AVCaptureDeviceInput?
     private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
     private var rotationObservations = [NSKeyValueObservation]()
@@ -57,32 +89,47 @@ final class CaptureSessionController: NSObject, ObservableObject {
     private var usingFrontCamera = false
     @MainActor @Published private var isSaveCoolingDown = false
     @MainActor @Published private(set) var isClipping = false
+    @MainActor @Published private(set) var isCapturingPhoto = false
     /// Only append samples while armed (session-queue only).
-    private var isBufferingLocked = false
+    var isBufferingLocked = false
+    /// When true, audio samples are dropped (session-queue).
+    var isMicMutedLocked = false
     private var exportTask: Task<Void, Never>?
     private var clipTask: Task<Void, Never>?
     private var didWarnMicDenied = false
     private var pendingSaveSegments: [BufferSegment] = []
     private var pendingSessionSeconds: TimeInterval = 0
     private let clipSeconds: TimeInterval = 30
+    var interruptionObservers = [NSObjectProtocol]()
+    /// Zoom factor when the current pinch gesture began.
+    var pinchZoomBase: CGFloat = 1
+    /// Desired quality; may be clamped to what the active camera supports.
+    private var desiredQuality = CaptureQualityPreference.load()
 
     // MARK: - Lifecycle
 
     override init() {
         let queue = DispatchQueue(label: "com.moxie.Replay.session")
         sessionQueue = queue
+        captureSession = AVCaptureSession()
         recorder = RollingBufferRecorder(
             queue: queue,
             bufferDuration: BufferLength.maxBufferSeconds,
             retainsFullSession: true
         )
         super.init()
-        previewLayer.session = session
+        previewLayer.session = captureSession
         previewLayer.videoGravity = .resizeAspectFill
         recorder.onBufferDurationChange = { [weak self] seconds in
             Task { @MainActor in
                 self?.bufferedSeconds = seconds
+                self?.warnIfLongRecording(seconds)
             }
+        }
+        let quality = desiredQuality
+        Task { @MainActor in
+            self.resolution = quality.resolution
+            self.frameRate = quality.frameRate
         }
     }
 
@@ -102,10 +149,11 @@ final class CaptureSessionController: NSObject, ObservableObject {
                 statusMessage = "Mic off — clips will be silent."
                 scheduleStatusClear()
             }
+            installInterruptionObservers()
             sessionQueue.async { [weak self] in
                 self?.configureSessionLocked(includeAudio: micOK)
-                self?.session.startRunning()
-                let running = self?.session.isRunning ?? false
+                self?.captureSession.startRunning()
+                let running = self?.captureSession.isRunning ?? false
                 Task { @MainActor in
                     self?.isSessionRunning = running
                 }
@@ -115,17 +163,24 @@ final class CaptureSessionController: NSObject, ObservableObject {
 
     /// Stops capture and clears the rolling buffer.
     func stop() {
+        removeInterruptionObservers()
         sessionQueue.async { [weak self] in
             guard let self else { return }
             self.tearDownRotationCoordinatorLocked()
-            if self.session.isRunning {
-                self.session.stopRunning()
+            if let device = self.videoDeviceInput?.device, device.hasTorch {
+                try? device.lockForConfiguration()
+                device.torchMode = .off
+                device.unlockForConfiguration()
+            }
+            if self.captureSession.isRunning {
+                self.captureSession.stopRunning()
             }
             self.recorder.reset()
             Task { @MainActor in
                 self.isSessionRunning = false
                 self.isRecording = false
                 self.isChoosingSave = false
+                self.isTorchOn = false
                 self.bufferedSeconds = 0
                 self.clearPendingSave()
             }
@@ -143,11 +198,40 @@ final class CaptureSessionController: NSObject, ObservableObject {
         }
     }
 
+    /// Toggles HD ↔ 4K when idle.
+    @MainActor
+    func toggleResolution() {
+        guard canChangeQuality else { return }
+        let next: CaptureResolution = resolution == .hd ? .fourK : .hd
+        resolution = next
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            self.desiredQuality.resolution = next
+            self.desiredQuality.save()
+            self.applyCaptureQualityLocked()
+        }
+    }
+
+    /// Cycles 24 → 30 → 60 when idle.
+    @MainActor
+    func cycleFrameRate() {
+        guard canChangeQuality else { return }
+        let next = frameRate.next
+        frameRate = next
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            self.desiredQuality.frameRate = next
+            self.desiredQuality.save()
+            self.applyCaptureQualityLocked()
+        }
+    }
+
     /// Arms the session buffer after the user settles orientation.
     @MainActor
     private func startRecording() {
         isRecording = true
         bufferedSeconds = 0
+        didWarnLongRecording = false
         clearPendingSave()
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
 
@@ -162,13 +246,14 @@ final class CaptureSessionController: NSObject, ObservableObject {
 
     /// Stops buffering and presents the save sheet once the snapshot is ready.
     @MainActor
-    private func stopRecordingForSavePrompt() {
+    func stopRecordingForSavePrompt() {
+        guard isRecording else { return }
         let readySeconds = bufferedSeconds
         isRecording = false
         beginSaveCooldown()
 
         sessionQueue.async { [weak self] in
-            self?.isBufferingLocked = false
+            self?.unlockRotationAfterRecordingLocked()
         }
 
         guard readySeconds >= 0.5 else {
@@ -203,7 +288,29 @@ final class CaptureSessionController: NSObject, ObservableObject {
         }
     }
 
-    /// User dismissed the sheet or chose Don't Save.
+    /// Ends an in-progress take when the app resigns or capture is interrupted.
+    @MainActor
+    func handleExternalInterruption() {
+        guard isRecording else { return }
+        stopRecordingForSavePrompt()
+    }
+
+    /// Restarts the session after a call or background interrupt ends.
+    func resumeCaptureIfNeeded() {
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            guard self.videoDeviceInput != nil else { return }
+            if !self.captureSession.isRunning {
+                self.captureSession.startRunning()
+            }
+            let running = self.captureSession.isRunning
+            Task { @MainActor in
+                self.isSessionRunning = running
+            }
+        }
+    }
+
+    /// User chose Don't Save — discard the frozen take.
     @MainActor
     func discardRecording() {
         guard isChoosingSave || !pendingSaveSegments.isEmpty else { return }
@@ -217,18 +324,14 @@ final class CaptureSessionController: NSObject, ObservableObject {
         bufferedSeconds = 0
     }
 
-    /// Exports the frozen take for `option` with instant feedback.
+    /// Cancel / dismiss save sheet — keep a temporary Moment, no Photos export.
     @MainActor
-    func confirmSave(_ option: SaveOption) {
+    func keepRecordingAsMoment() {
         guard isChoosingSave else { return }
         let segments = pendingSaveSegments
         let sessionSeconds = max(pendingSessionSeconds, 0.5)
         isChoosingSave = false
         clearPendingSave()
-
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-        statusMessage = "Saved"
-        scheduleStatusClear()
 
         exportTask?.cancel()
         exportTask = Task { @MainActor [weak self] in
@@ -242,6 +345,50 @@ final class CaptureSessionController: NSObject, ObservableObject {
             guard !segments.isEmpty else { return }
 
             do {
+                let full = try await SegmentStitcher.stitch(
+                    segments,
+                    trailingSeconds: sessionSeconds
+                )
+                let fullDuration = try await Self.duration(of: full)
+                _ = try MomentStore.shared.add(from: full, duration: fullDuration)
+                try? FileManager.default.removeItem(at: full)
+                self.statusMessage = "Kept as Moment"
+                self.scheduleStatusClear()
+            } catch {
+                self.statusMessage = error.localizedDescription
+                self.scheduleStatusClear()
+            }
+        }
+    }
+
+    /// Exports the frozen take for `option` with feedback after the write finishes.
+    @MainActor
+    func confirmSave(_ option: SaveOption) {
+        guard isChoosingSave else { return }
+        let segments = pendingSaveSegments
+        let sessionSeconds = max(pendingSessionSeconds, 0.5)
+        isChoosingSave = false
+        clearPendingSave()
+
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        statusMessage = "Saving…"
+
+        exportTask?.cancel()
+        exportTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                RollingBufferRecorder.cleanupExportSnapshot(segments)
+                self.sessionQueue.async { self.recorder.reset() }
+                self.bufferedSeconds = 0
+            }
+
+            guard !segments.isEmpty else {
+                self.statusMessage = "Nothing to save."
+                self.scheduleStatusClear()
+                return
+            }
+
+            do {
                 // Always stitch the full session first (master / Moment).
                 let full = try await SegmentStitcher.stitch(
                     segments,
@@ -252,25 +399,30 @@ final class CaptureSessionController: NSObject, ObservableObject {
                     from: full,
                     duration: fullDuration
                 )
+                let momentURL = MomentStore.shared.fileURL(for: moment)
                 try? FileManager.default.removeItem(at: full)
 
                 let exportURL: URL
                 if let trailing = option.trailingSeconds,
                    trailing + 0.2 < fullDuration {
                     exportURL = try await MomentExporter.exportTrailing(
-                        from: moment.fileURL,
+                        from: momentURL,
                         seconds: trailing
                     )
                 } else {
                     exportURL = try await MomentExporter.exportTrailing(
-                        from: moment.fileURL,
+                        from: momentURL,
                         seconds: fullDuration
                     )
                 }
 
                 try await PhotoLibrarySaver.saveVideo(at: exportURL)
                 try? FileManager.default.removeItem(at: exportURL)
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                self.statusMessage = "Saved"
+                self.scheduleStatusClear()
             } catch {
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
                 self.statusMessage = error.localizedDescription
                 self.scheduleStatusClear()
             }
@@ -280,6 +432,27 @@ final class CaptureSessionController: NSObject, ObservableObject {
     private func clearPendingSave() {
         pendingSaveSegments = []
         pendingSessionSeconds = 0
+    }
+
+    /// Captures a still photo into the Replay album without stopping recording.
+    @MainActor
+    func captureStillPhoto() {
+        guard canCapturePhoto else { return }
+        isCapturingPhoto = true
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            let settings: AVCapturePhotoSettings
+            if self.photoOutput.availablePhotoCodecTypes.contains(.hevc) {
+                settings = AVCapturePhotoSettings(
+                    format: [AVVideoCodecKey: AVVideoCodecType.hevc]
+                )
+            } else {
+                settings = AVCapturePhotoSettings()
+            }
+            self.photoOutput.capturePhoto(with: settings, delegate: self)
+        }
     }
 
     /// Saves the last 30 seconds without stopping the full session.
@@ -315,6 +488,7 @@ final class CaptureSessionController: NSObject, ObservableObject {
                 try await PhotoLibrarySaver.saveVideo(at: stitched)
                 try? FileManager.default.removeItem(at: stitched)
             } catch {
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
                 self.statusMessage = error.localizedDescription
                 self.scheduleStatusClear()
             }
@@ -335,7 +509,7 @@ final class CaptureSessionController: NSObject, ObservableObject {
     @MainActor
     func saveMoment(_ moment: ReplayMoment) async throws {
         let cut = try await MomentExporter.exportTrailing(
-            from: moment.fileURL,
+            from: MomentStore.shared.fileURL(for: moment),
             seconds: moment.duration
         )
         try await PhotoLibrarySaver.saveVideo(at: cut)
@@ -353,14 +527,16 @@ final class CaptureSessionController: NSObject, ObservableObject {
     }
 
     /// Switches between front and back cameras and resets the buffer.
+    /// Disabled while recording — flipping would wipe the armed take.
     func flipCamera() {
         sessionQueue.async { [weak self] in
             guard let self else { return }
+            guard !self.isBufferingLocked else { return }
             let keepBuffering = self.isBufferingLocked
-            self.session.beginConfiguration()
+            self.captureSession.beginConfiguration()
 
             if let current = self.videoDeviceInput {
-                self.session.removeInput(current)
+                self.captureSession.removeInput(current)
             }
 
             let nextPosition: AVCaptureDevice.Position =
@@ -372,18 +548,21 @@ final class CaptureSessionController: NSObject, ObservableObject {
                     position: nextPosition
                 ),
                 let input = try? AVCaptureDeviceInput(device: device),
-                self.session.canAddInput(input)
+                self.captureSession.canAddInput(input)
             else {
-                self.session.commitConfiguration()
+                self.captureSession.commitConfiguration()
                 return
             }
 
-            self.session.addInput(input)
+            self.captureSession.addInput(input)
             self.videoDeviceInput = input
             self.usingFrontCamera = nextPosition == .front
             self.configureRecorderSettingsLocked()
-            self.session.commitConfiguration()
+            self.captureSession.commitConfiguration()
             self.recorder.reset()
+            self.setZoomFactorLocked(1)
+            self.applyCaptureQualityLocked()
+            self.publishTorchAvailabilityLocked()
             self.installRotationCoordinatorLocked()
             self.isBufferingLocked = keepBuffering
 
@@ -391,6 +570,11 @@ final class CaptureSessionController: NSObject, ObservableObject {
                connection.isVideoMirroringSupported {
                 connection.automaticallyAdjustsVideoMirroring = false
                 connection.isVideoMirrored = nextPosition == .front
+            }
+            if let photoConnection = self.photoOutput.connection(with: .video),
+               photoConnection.isVideoMirroringSupported {
+                photoConnection.automaticallyAdjustsVideoMirroring = false
+                photoConnection.isVideoMirrored = nextPosition == .front
             }
 
             Task { @MainActor in
@@ -403,23 +587,23 @@ final class CaptureSessionController: NSObject, ObservableObject {
     // MARK: - Session setup
 
     private func configureSessionLocked(includeAudio: Bool) {
-        session.beginConfiguration()
-        if session.canSetSessionPreset(.hd1920x1080) {
-            session.sessionPreset = .hd1920x1080
-        } else {
-            session.sessionPreset = .high
-        }
+        captureSession.beginConfiguration()
+        captureSession.sessionPreset = .inputPriority
 
-        if session.outputs.isEmpty {
-            if session.canAddOutput(videoOutput) {
+        if captureSession.outputs.isEmpty {
+            if captureSession.canAddOutput(videoOutput) {
                 videoOutput.alwaysDiscardsLateVideoFrames = true
                 videoOutput.setSampleBufferDelegate(self, queue: sessionQueue)
-                session.addOutput(videoOutput)
+                captureSession.addOutput(videoOutput)
             }
 
-            if includeAudio, session.canAddOutput(audioOutput) {
+            if includeAudio, captureSession.canAddOutput(audioOutput) {
                 audioOutput.setSampleBufferDelegate(self, queue: sessionQueue)
-                session.addOutput(audioOutput)
+                captureSession.addOutput(audioOutput)
+            }
+
+            if captureSession.canAddOutput(photoOutput) {
+                captureSession.addOutput(photoOutput)
             }
         }
 
@@ -430,8 +614,8 @@ final class CaptureSessionController: NSObject, ObservableObject {
             position: .back
            ),
            let input = try? AVCaptureDeviceInput(device: device),
-           session.canAddInput(input) {
-            session.addInput(input)
+           captureSession.canAddInput(input) {
+            captureSession.addInput(input)
             videoDeviceInput = input
         }
 
@@ -439,23 +623,120 @@ final class CaptureSessionController: NSObject, ObservableObject {
            audioDeviceInput == nil,
            let mic = AVCaptureDevice.default(for: .audio),
            let micInput = try? AVCaptureDeviceInput(device: mic),
-           session.canAddInput(micInput) {
-            session.addInput(micInput)
+           captureSession.canAddInput(micInput) {
+            captureSession.addInput(micInput)
             audioDeviceInput = micInput
         }
 
-        configureRecorderSettingsLocked()
-        session.commitConfiguration()
+        captureSession.commitConfiguration()
+        applyCaptureQualityLocked()
+        publishTorchAvailabilityLocked()
         installRotationCoordinatorLocked()
     }
 
+    /// Picks the best matching device format for desired resolution + fps.
+    private func applyCaptureQualityLocked() {
+        guard let device = videoDeviceInput?.device else { return }
+        let wanted = desiredQuality
+        guard
+            let match = Self.bestFormat(
+                on: device,
+                resolution: wanted.resolution,
+                frameRate: wanted.frameRate
+            )
+        else { return }
+
+        do {
+            try device.lockForConfiguration()
+            device.activeFormat = match.format
+            let duration = CMTime(value: 1, timescale: CMTimeScale(match.frameRate.rawValue))
+            device.activeVideoMinFrameDuration = duration
+            device.activeVideoMaxFrameDuration = duration
+            device.unlockForConfiguration()
+        } catch {
+            return
+        }
+
+        desiredQuality = CaptureQualityPreference(
+            resolution: match.resolution,
+            frameRate: match.frameRate
+        )
+        desiredQuality.save()
+        configureRecorderSettingsLocked()
+
+        let applied = desiredQuality
+        Task { @MainActor in
+            self.resolution = applied.resolution
+            self.frameRate = applied.frameRate
+        }
+    }
+
+    private struct FormatMatch {
+        let format: AVCaptureDevice.Format
+        let resolution: CaptureResolution
+        let frameRate: CaptureFrameRate
+    }
+
+    private static func bestFormat(
+        on device: AVCaptureDevice,
+        resolution: CaptureResolution,
+        frameRate: CaptureFrameRate
+    ) -> FormatMatch? {
+        let resolutionOrder = resolution == .fourK
+            ? [CaptureResolution.fourK, .hd]
+            : [CaptureResolution.hd, .fourK]
+        let rateOrder: [CaptureFrameRate] = [frameRate] + CaptureFrameRate.allCases.filter {
+            $0 != frameRate
+        }
+
+        for res in resolutionOrder {
+            for rate in rateOrder {
+                if let format = selectFormat(
+                    on: device,
+                    width: res.width,
+                    height: res.height,
+                    fps: rate.rawValue
+                ) {
+                    return FormatMatch(
+                        format: format,
+                        resolution: res,
+                        frameRate: rate
+                    )
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func selectFormat(
+        on device: AVCaptureDevice,
+        width: Int32,
+        height: Int32,
+        fps: Int
+    ) -> AVCaptureDevice.Format? {
+        let fpsValue = Float64(fps)
+        let matches = device.formats.filter { format in
+            let dims = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+            guard dims.width == width, dims.height == height else { return false }
+            return format.videoSupportedFrameRateRanges.contains { range in
+                range.minFrameRate <= fpsValue && fpsValue <= range.maxFrameRate
+            }
+        }
+        // Prefer wider FOV (less cropped tele-style formats).
+        return matches.max(
+            by: { $0.videoFieldOfView < $1.videoFieldOfView }
+        )
+    }
+
     private func configureRecorderSettingsLocked() {
+        let fallbackWidth = Int(desiredQuality.resolution.width)
+        let fallbackHeight = Int(desiredQuality.resolution.height)
         let videoSettings = videoOutput.recommendedVideoSettingsForAssetWriter(
             writingTo: .mp4
         ) ?? [
-            AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: 1920,
-            AVVideoHeightKey: 1080
+            AVVideoCodecKey: AVVideoCodecType.hevc,
+            AVVideoWidthKey: fallbackWidth,
+            AVVideoHeightKey: fallbackHeight
         ]
 
         var audioSettings: [String: Any]?
@@ -493,7 +774,8 @@ final class CaptureSessionController: NSObject, ObservableObject {
         ) { [weak self] coord, _ in
             let angle = coord.videoRotationAngleForHorizonLevelCapture
             self?.sessionQueue.async {
-                self?.applyCaptureRotation(angle, breakSegment: true)
+                guard let self, !self.isBufferingLocked else { return }
+                self.applyCaptureRotation(angle, breakSegment: true)
             }
         }
 
@@ -502,12 +784,29 @@ final class CaptureSessionController: NSObject, ObservableObject {
             options: [.new]
         ) { [weak self] coord, _ in
             let angle = coord.videoRotationAngleForHorizonLevelPreview
-            DispatchQueue.main.async {
-                self?.applyPreviewRotation(angle)
+            self?.sessionQueue.async {
+                guard let self, !self.isBufferingLocked else { return }
+                DispatchQueue.main.async {
+                    self.applyPreviewRotation(angle)
+                }
             }
         }
 
         rotationObservations = [captureObservation, previewObservation]
+    }
+
+    /// Ends the recording lock and snaps capture/preview to the current device angle.
+    private func unlockRotationAfterRecordingLocked() {
+        isBufferingLocked = false
+        guard let coordinator = rotationCoordinator else { return }
+        applyCaptureRotation(
+            coordinator.videoRotationAngleForHorizonLevelCapture,
+            breakSegment: false
+        )
+        let previewAngle = coordinator.videoRotationAngleForHorizonLevelPreview
+        DispatchQueue.main.async { [weak self] in
+            self?.applyPreviewRotation(previewAngle)
+        }
     }
 
     private func tearDownRotationCoordinatorLocked() {
@@ -525,6 +824,11 @@ final class CaptureSessionController: NSObject, ObservableObject {
         let angleChanged = lastCaptureRotationAngle != angle
         connection.videoRotationAngle = angle
         lastCaptureRotationAngle = angle
+
+        if let photoConnection = photoOutput.connection(with: .video),
+           photoConnection.isVideoRotationAngleSupported(angle) {
+            photoConnection.videoRotationAngle = angle
+        }
 
         guard angleChanged else { return }
         configureRecorderSettingsLocked()
@@ -557,6 +861,15 @@ final class CaptureSessionController: NSObject, ObservableObject {
     }
 
     @MainActor
+    private func warnIfLongRecording(_ seconds: TimeInterval) {
+        guard isRecording, !didWarnLongRecording else { return }
+        guard seconds >= Self.longRecordingWarningSeconds else { return }
+        didWarnLongRecording = true
+        statusMessage = "Long recording — watch free storage."
+        scheduleStatusClear()
+    }
+
+    @MainActor
     private func beginSaveCooldown() {
         isSaveCoolingDown = true
         Task { @MainActor in
@@ -566,7 +879,7 @@ final class CaptureSessionController: NSObject, ObservableObject {
     }
 
     @MainActor
-    private func scheduleStatusClear() {
+    func scheduleStatusClear() {
         let message = statusMessage
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 1_400_000_000)
@@ -590,7 +903,47 @@ extension CaptureSessionController: AVCaptureVideoDataOutputSampleBufferDelegate
         if output is AVCaptureVideoDataOutput {
             recorder.appendVideo(sampleBuffer)
         } else if output is AVCaptureAudioDataOutput {
+            guard !isMicMutedLocked else { return }
             recorder.appendAudio(sampleBuffer)
+        }
+    }
+}
+
+// MARK: - Still photo
+
+extension CaptureSessionController: AVCapturePhotoCaptureDelegate {
+    func photoOutput(
+        _ output: AVCapturePhotoOutput,
+        didFinishProcessingPhoto photo: AVCapturePhoto,
+        error: Error?
+    ) {
+        Task { @MainActor in
+            defer { self.isCapturingPhoto = false }
+
+            if let error {
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                self.statusMessage = error.localizedDescription
+                self.scheduleStatusClear()
+                return
+            }
+
+            guard let data = photo.fileDataRepresentation() else {
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                self.statusMessage = "Could not capture photo."
+                self.scheduleStatusClear()
+                return
+            }
+
+            do {
+                try await PhotoLibrarySaver.saveImageData(data)
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                self.statusMessage = "Photo saved"
+                self.scheduleStatusClear()
+            } catch {
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                self.statusMessage = error.localizedDescription
+                self.scheduleStatusClear()
+            }
         }
     }
 }
