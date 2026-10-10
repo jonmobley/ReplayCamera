@@ -10,7 +10,7 @@ import Photos
 import SwiftUI
 import UIKit
 
-/// In-app roll: recent Moments plus videos in the Replay Photos album.
+/// In-app library: recent Moments plus videos in the Replay Photos album.
 struct CameraRollView: View {
     @ObservedObject var moments: MomentStore
     @StateObject private var library = ReplayAlbumLibrary()
@@ -181,15 +181,15 @@ private struct MomentCard: View {
                     .font(.title2)
                     .foregroundStyle(.white.opacity(0.85))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("\(Int(moment.duration.rounded(.down)))s")
-                        .font(.caption.weight(.semibold))
-                    Text(remainingLabel(remaining))
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.white.opacity(0.85))
-                }
-                .padding(8)
-                .foregroundStyle(.white)
+
+                Text(remainingLabel(remaining))
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .padding(8)
+
+                DurationBadge(seconds: moment.duration)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .padding(6)
             }
             .frame(width: 120, height: 160)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -224,6 +224,12 @@ private struct AlbumThumbnail: View {
                         .scaledToFill()
                 }
             }
+            .overlay(alignment: .bottomTrailing) {
+                if asset.mediaType == .video, asset.duration > 0 {
+                    DurationBadge(seconds: asset.duration)
+                        .padding(5)
+                }
+            }
             .clipped()
             .task {
                 let scale = UIScreen.main.scale
@@ -232,6 +238,30 @@ private struct AlbumThumbnail: View {
                     size: CGSize(width: 200 * scale, height: 200 * scale)
                 )
             }
+    }
+}
+
+/// Photos-style duration label for video thumbnails.
+private struct DurationBadge: View {
+    let seconds: TimeInterval
+
+    var body: some View {
+        Text(Self.format(seconds))
+            .font(.caption2.weight(.semibold))
+            .monospacedDigit()
+            .foregroundStyle(.white)
+            .shadow(color: .black.opacity(0.55), radius: 1.5, y: 0.5)
+    }
+
+    private static func format(_ seconds: TimeInterval) -> String {
+        let total = max(0, Int(seconds.rounded()))
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let secs = total % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, secs)
+        }
+        return String(format: "%d:%02d", minutes, secs)
     }
 }
 

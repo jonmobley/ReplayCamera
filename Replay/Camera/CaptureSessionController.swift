@@ -20,8 +20,8 @@ final class CaptureSessionController: NSObject, ObservableObject, @unchecked Sen
     @MainActor @Published private(set) var bufferedSeconds: TimeInterval = 0
     @MainActor @Published private(set) var isSessionRunning = false
     @MainActor @Published private(set) var isRecording = false
-    @MainActor @Published private(set) var isChoosingSave = false
     @MainActor @Published var statusMessage: String?
+    @MainActor @Published private(set) var canUndoLastSave = false
     @MainActor @Published private(set) var permissionDenied = false
     @MainActor @Published private(set) var isUsingFrontCamera = false
     @MainActor @Published private(set) var resolution: CaptureResolution = .hd
@@ -32,42 +32,38 @@ final class CaptureSessionController: NSObject, ObservableObject, @unchecked Sen
     @MainActor @Published var isMicMuted = false
 
     private var didWarnLongRecording = false
+    private var didWarnLowStorage = false
     private static let longRecordingWarningSeconds: TimeInterval = 10 * 60
+    private static let undoWindowNanoseconds: UInt64 = 5_000_000_000
 
     @MainActor
     var canToggleShutter: Bool {
-        isSessionRunning && !isSaveCoolingDown && !permissionDenied && !isChoosingSave
+        isSessionRunning && !isSaveCoolingDown && !permissionDenied
     }
 
     @MainActor
     var canChangeQuality: Bool {
-        isSessionRunning && !isRecording && !isChoosingSave && !permissionDenied
+        isSessionRunning && !isRecording && !permissionDenied
     }
 
     @MainActor
     var canClip: Bool {
-        isRecording && bufferedSeconds >= 0.5 && !isClipping && !isChoosingSave
+        isRecording && bufferedSeconds >= 0.5 && !isClipping
     }
 
     @MainActor
     var canCapturePhoto: Bool {
-        isRecording && !isCapturingPhoto && !permissionDenied && !isChoosingSave
+        isRecording && !isCapturingPhoto && !permissionDenied
     }
 
     @MainActor
     var canFlipCamera: Bool {
-        isSessionRunning && !isRecording && !isChoosingSave && !permissionDenied
+        isSessionRunning && !isRecording && !permissionDenied
     }
 
     @MainActor
     var canToggleTorch: Bool {
         isTorchAvailable && !permissionDenied && !isUsingFrontCamera
-    }
-
-    /// Save lengths offered for the frozen take.
-    @MainActor
-    var availableSaveOptions: [SaveOption] {
-        SaveOption.available(forSessionSeconds: pendingSessionSeconds)
     }
 
     // MARK: - Capture
@@ -96,9 +92,12 @@ final class CaptureSessionController: NSObject, ObservableObject, @unchecked Sen
     var isMicMutedLocked = false
     private var exportTask: Task<Void, Never>?
     private var clipTask: Task<Void, Never>?
+    private var undoWindowTask: Task<Void, Never>?
     private var didWarnMicDenied = false
-    private var pendingSaveSegments: [BufferSegment] = []
-    private var pendingSessionSeconds: TimeInterval = 0
+    private var undoMomentID: UUID?
+    private var undoAssetLocalID: String?
+    /// Set by Undo so an in-flight save rolls back after cancel.
+    private var undoRequested = false
     private let clipSeconds: TimeInterval = 30
     var interruptionObservers = [NSObjectProtocol]()
     /// Zoom factor when the current pinch gesture began.
@@ -124,6 +123,7 @@ final class CaptureSessionController: NSObject, ObservableObject, @unchecked Sen
             Task { @MainActor in
                 self?.bufferedSeconds = seconds
                 self?.warnIfLongRecording(seconds)
+                self?.warnIfLowStorage()
             }
         }
         let quality = desiredQuality
@@ -179,20 +179,19 @@ final class CaptureSessionController: NSObject, ObservableObject, @unchecked Sen
             Task { @MainActor in
                 self.isSessionRunning = false
                 self.isRecording = false
-                self.isChoosingSave = false
                 self.isTorchOn = false
                 self.bufferedSeconds = 0
-                self.clearPendingSave()
+                self.clearUndoState(clearMessage: true)
             }
         }
     }
 
-    /// Idle → start buffering; recording → stop and ask what to save.
+    /// Idle → start buffering; recording → stop and auto-save the full take.
     @MainActor
     func toggleShutter() {
         guard canToggleShutter else { return }
         if isRecording {
-            stopRecordingForSavePrompt()
+            stopRecordingAndSave()
         } else {
             startRecording()
         }
@@ -229,10 +228,11 @@ final class CaptureSessionController: NSObject, ObservableObject, @unchecked Sen
     /// Arms the session buffer after the user settles orientation.
     @MainActor
     private func startRecording() {
+        clearUndoState(clearMessage: true)
         isRecording = true
         bufferedSeconds = 0
         didWarnLongRecording = false
-        clearPendingSave()
+        didWarnLowStorage = false
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
 
         sessionQueue.async { [weak self] in
@@ -244,9 +244,9 @@ final class CaptureSessionController: NSObject, ObservableObject, @unchecked Sen
         }
     }
 
-    /// Stops buffering and presents the save sheet once the snapshot is ready.
+    /// Stops buffering and immediately saves the full take to Photos + Moments.
     @MainActor
-    func stopRecordingForSavePrompt() {
+    func stopRecordingAndSave() {
         guard isRecording else { return }
         let readySeconds = bufferedSeconds
         isRecording = false
@@ -267,24 +267,78 @@ final class CaptureSessionController: NSObject, ObservableObject, @unchecked Sen
             return
         }
 
+        clearUndoState(clearMessage: false)
+        undoRequested = false
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        statusMessage = "Saving…"
+        canUndoLastSave = true
+
         exportTask?.cancel()
         exportTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let segments = await self.snapshotSegments()
-            guard !Task.isCancelled else {
+            defer {
                 RollingBufferRecorder.cleanupExportSnapshot(segments)
-                return
-            }
-            guard !segments.isEmpty else {
-                self.statusMessage = "Nothing buffered yet."
-                self.scheduleStatusClear()
                 self.sessionQueue.async { self.recorder.reset() }
                 self.bufferedSeconds = 0
+            }
+
+            guard !Task.isCancelled, !self.undoRequested else { return }
+            guard !segments.isEmpty else {
+                self.clearUndoState(clearMessage: false)
+                self.statusMessage = "Nothing buffered yet."
+                self.scheduleStatusClear()
                 return
             }
-            self.pendingSaveSegments = segments
-            self.pendingSessionSeconds = segments.reduce(0) { $0 + $1.duration }
-            self.isChoosingSave = true
+
+            let sessionSeconds = max(
+                segments.reduce(0) { $0 + $1.duration },
+                0.5
+            )
+
+            do {
+                let full = try await SegmentStitcher.stitch(
+                    segments,
+                    trailingSeconds: sessionSeconds
+                )
+                if Task.isCancelled || self.undoRequested {
+                    try? FileManager.default.removeItem(at: full)
+                    await self.rollbackPartialSave()
+                    return
+                }
+
+                let fullDuration = try await Self.duration(of: full)
+                let moment = try MomentStore.shared.add(
+                    from: full,
+                    duration: fullDuration
+                )
+                self.undoMomentID = moment.id
+                try? FileManager.default.removeItem(at: full)
+
+                if Task.isCancelled || self.undoRequested {
+                    await self.rollbackPartialSave()
+                    return
+                }
+
+                let momentURL = MomentStore.shared.fileURL(for: moment)
+                let assetID = try await PhotoLibrarySaver.saveVideo(at: momentURL)
+                self.undoAssetLocalID = assetID
+
+                if Task.isCancelled || self.undoRequested {
+                    await self.rollbackPartialSave()
+                    return
+                }
+
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                self.statusMessage = "Saved"
+                self.beginUndoWindow()
+            } catch {
+                await self.rollbackPartialSave()
+                if Task.isCancelled || self.undoRequested { return }
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                self.statusMessage = error.localizedDescription
+                self.scheduleStatusClear()
+            }
         }
     }
 
@@ -292,7 +346,7 @@ final class CaptureSessionController: NSObject, ObservableObject, @unchecked Sen
     @MainActor
     func handleExternalInterruption() {
         guard isRecording else { return }
-        stopRecordingForSavePrompt()
+        stopRecordingAndSave()
     }
 
     /// Restarts the session after a call or background interrupt ends.
@@ -310,128 +364,63 @@ final class CaptureSessionController: NSObject, ObservableObject, @unchecked Sen
         }
     }
 
-    /// User chose Don't Save — discard the frozen take.
+    /// Discards the just-saved take (Moment + Photos) while Undo is available.
     @MainActor
-    func discardRecording() {
-        guard isChoosingSave || !pendingSaveSegments.isEmpty else { return }
-        isChoosingSave = false
-        let segments = pendingSaveSegments
-        clearPendingSave()
-        RollingBufferRecorder.cleanupExportSnapshot(segments)
-        sessionQueue.async { [weak self] in
-            self?.recorder.reset()
-        }
-        bufferedSeconds = 0
-    }
-
-    /// Cancel / dismiss save sheet — keep a temporary Moment, no Photos export.
-    @MainActor
-    func keepRecordingAsMoment() {
-        guard isChoosingSave else { return }
-        let segments = pendingSaveSegments
-        let sessionSeconds = max(pendingSessionSeconds, 0.5)
-        isChoosingSave = false
-        clearPendingSave()
-
+    func undoLastSave() {
+        guard canUndoLastSave else { return }
+        canUndoLastSave = false
+        undoRequested = true
+        undoWindowTask?.cancel()
+        undoWindowTask = nil
+        let inFlight = exportTask
         exportTask?.cancel()
-        exportTask = Task { @MainActor [weak self] in
+
+        Task { @MainActor [weak self] in
             guard let self else { return }
-            defer {
-                RollingBufferRecorder.cleanupExportSnapshot(segments)
-                self.sessionQueue.async { self.recorder.reset() }
-                self.bufferedSeconds = 0
-            }
-
-            guard !segments.isEmpty else { return }
-
-            do {
-                let full = try await SegmentStitcher.stitch(
-                    segments,
-                    trailingSeconds: sessionSeconds
-                )
-                let fullDuration = try await Self.duration(of: full)
-                _ = try MomentStore.shared.add(from: full, duration: fullDuration)
-                try? FileManager.default.removeItem(at: full)
-                self.statusMessage = "Kept as Moment"
-                self.scheduleStatusClear()
-            } catch {
-                self.statusMessage = error.localizedDescription
-                self.scheduleStatusClear()
-            }
+            await inFlight?.value
+            await self.rollbackPartialSave()
+            self.undoRequested = false
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            self.statusMessage = "Discarded"
+            self.scheduleStatusClear()
         }
     }
 
-    /// Exports the frozen take for `option` with feedback after the write finishes.
+    // MARK: - Undo helpers
+
     @MainActor
-    func confirmSave(_ option: SaveOption) {
-        guard isChoosingSave else { return }
-        let segments = pendingSaveSegments
-        let sessionSeconds = max(pendingSessionSeconds, 0.5)
-        isChoosingSave = false
-        clearPendingSave()
-
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        statusMessage = "Saving…"
-
-        exportTask?.cancel()
-        exportTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer {
-                RollingBufferRecorder.cleanupExportSnapshot(segments)
-                self.sessionQueue.async { self.recorder.reset() }
-                self.bufferedSeconds = 0
-            }
-
-            guard !segments.isEmpty else {
-                self.statusMessage = "Nothing to save."
-                self.scheduleStatusClear()
-                return
-            }
-
-            do {
-                // Always stitch the full session first (master / Moment).
-                let full = try await SegmentStitcher.stitch(
-                    segments,
-                    trailingSeconds: sessionSeconds
-                )
-                let fullDuration = try await Self.duration(of: full)
-                let moment = try MomentStore.shared.add(
-                    from: full,
-                    duration: fullDuration
-                )
-                let momentURL = MomentStore.shared.fileURL(for: moment)
-                try? FileManager.default.removeItem(at: full)
-
-                let exportURL: URL
-                if let trailing = option.trailingSeconds,
-                   trailing + 0.2 < fullDuration {
-                    exportURL = try await MomentExporter.exportTrailing(
-                        from: momentURL,
-                        seconds: trailing
-                    )
-                } else {
-                    exportURL = try await MomentExporter.exportTrailing(
-                        from: momentURL,
-                        seconds: fullDuration
-                    )
-                }
-
-                try await PhotoLibrarySaver.saveVideo(at: exportURL)
-                try? FileManager.default.removeItem(at: exportURL)
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
-                self.statusMessage = "Saved"
-                self.scheduleStatusClear()
-            } catch {
-                UINotificationFeedbackGenerator().notificationOccurred(.error)
-                self.statusMessage = error.localizedDescription
-                self.scheduleStatusClear()
-            }
+    private func beginUndoWindow() {
+        undoWindowTask?.cancel()
+        undoWindowTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.undoWindowNanoseconds)
+            guard let self, !Task.isCancelled else { return }
+            self.clearUndoState(clearMessage: true)
         }
     }
 
-    private func clearPendingSave() {
-        pendingSaveSegments = []
-        pendingSessionSeconds = 0
+    @MainActor
+    private func clearUndoState(clearMessage: Bool) {
+        undoWindowTask?.cancel()
+        undoWindowTask = nil
+        canUndoLastSave = false
+        undoMomentID = nil
+        undoAssetLocalID = nil
+        if clearMessage, statusMessage == "Saved" || statusMessage == "Saving…" {
+            statusMessage = nil
+        }
+    }
+
+    @MainActor
+    private func rollbackPartialSave() async {
+        if let momentID = undoMomentID {
+            undoMomentID = nil
+            MomentStore.shared.remove(id: momentID)
+        }
+        if let assetID = undoAssetLocalID {
+            undoAssetLocalID = nil
+            try? await PhotoLibrarySaver.deleteAssets(localIdentifiers: [assetID])
+        }
+        canUndoLastSave = false
     }
 
     /// Captures a still photo into the Replay album without stopping recording.
@@ -866,6 +855,16 @@ final class CaptureSessionController: NSObject, ObservableObject, @unchecked Sen
         guard seconds >= Self.longRecordingWarningSeconds else { return }
         didWarnLongRecording = true
         statusMessage = "Long recording — watch free storage."
+        scheduleStatusClear()
+    }
+
+    /// Soft warning only — never stops the take.
+    @MainActor
+    private func warnIfLowStorage() {
+        guard isRecording, !didWarnLowStorage else { return }
+        guard StorageMonitor.isLowOnSpace() else { return }
+        didWarnLowStorage = true
+        statusMessage = "Low storage — consider stopping soon."
         scheduleStatusClear()
     }
 

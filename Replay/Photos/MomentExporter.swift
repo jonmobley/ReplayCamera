@@ -44,33 +44,27 @@ enum MomentExporter {
             .appendingPathComponent("ReplayCut-\(UUID().uuidString)")
             .appendingPathExtension("mp4")
 
-        guard let exporter = AVAssetExportSession(
-            asset: asset,
-            presetName: AVAssetExportPresetHighestQuality
-        ) else {
-            throw ExportError.failed("Export session unavailable.")
-        }
-
-        exporter.outputURL = outputURL
-        exporter.outputFileType = .mp4
-        exporter.timeRange = range
-        exporter.shouldOptimizeForNetworkUse = true
-
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            exporter.exportAsynchronously { continuation.resume() }
-        }
-
-        switch exporter.status {
-        case .completed:
+        // Whole-file keep: hard-link/copy — no export.
+        if keep + 0.05 >= total {
+            do {
+                try FileManager.default.linkItem(at: sourceURL, to: outputURL)
+            } catch {
+                try FileManager.default.copyItem(at: sourceURL, to: outputURL)
+            }
             return outputURL
-        case .failed:
-            throw ExportError.failed(
-                exporter.error?.localizedDescription ?? "Export failed."
+        }
+
+        do {
+            try await ReplayAssetExport.exportMP4(
+                asset: asset,
+                timeRange: range,
+                to: outputURL
             )
-        case .cancelled:
-            throw ExportError.failed("Export cancelled.")
-        default:
-            throw ExportError.failed("Unexpected export status.")
+            return outputURL
+        } catch {
+            let message = (error as? LocalizedError)?.errorDescription
+                ?? error.localizedDescription
+            throw ExportError.failed(message)
         }
     }
 }

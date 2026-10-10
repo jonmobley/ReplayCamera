@@ -7,7 +7,7 @@
 
 import Foundation
 
-/// One-time tip for the start → stop → choose-how-much flow.
+/// One-time tip for the start → stop → auto-save flow.
 enum FirstRunTipStore {
     private static let key = "Replay.didShowFirstRunTip"
 
