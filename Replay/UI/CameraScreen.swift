@@ -131,7 +131,7 @@ struct CameraScreen: View {
                 FirstRunTipStore.markShown()
                 showFirstRunTip = false
             }
-            .presentationDetents([.medium])
+            .presentationDetents([.fraction(0.75), .large])
         }
         .onAppear { camera.start() }
         .onDisappear { camera.stop() }
@@ -555,6 +555,7 @@ private struct FirstRunTipView: View {
                 Text(detail)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
